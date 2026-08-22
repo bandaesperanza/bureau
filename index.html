@@ -110,10 +110,11 @@
   header.app-header {
     background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
     color: var(--paper);
-    padding: 18px 18px 14px;
+    padding: calc(18px + env(safe-area-inset-top)) 18px 14px;
     position: sticky; top: 0; z-index: 20;
   }
-  .header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .header-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; margin: 0; }
   .header-eyebrow {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -358,7 +359,10 @@
         <p class="header-eyebrow" id="header-role-label">Trésorerie</p>
         <h1 class="header-title">Banda Esperanza</h1>
       </div>
-      <button class="header-btn" id="btn-theme-toggle" title="Thème">🌙</button>
+      <div class="header-actions">
+        <button class="header-btn" id="btn-theme-toggle" title="Thème">🌙</button>
+        <button class="header-btn" id="btn-logout" title="Déconnexion">⎋</button>
+      </div>
     </div>
   </header>
 
@@ -569,6 +573,10 @@ $('btn-theme-toggle').addEventListener('click', function(){
   }
 });
 if (localStorage.getItem('tresorerie_theme') === 'dark') $('btn-theme-toggle').textContent = '☀️';
+
+$('btn-logout').addEventListener('click', function(){
+  if (confirm('Se déconnecter ?')) fbAuth.signOut();
+});
 
 /* ============================================================
    AUTHENTIFICATION

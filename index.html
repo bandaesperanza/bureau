@@ -615,10 +615,13 @@ $('btn-signup').addEventListener('click', function(){
         email: email,
         role: premierCompte ? 'admin' : 'attente',
         creeLe: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      }).catch(function(err){ throw new Error('Ecriture profil : ' + err.message); });
+    }).catch(function(err){
+      if (err.message.indexOf('Ecriture profil') === 0) throw err;
+      throw new Error('Lecture liste utilisateurs : ' + err.message);
     });
   }).catch(function(err){
-    showLoginError(traduireErreurAuth(err));
+    showLoginError(err.message || traduireErreurAuth(err));
   });
 });
 

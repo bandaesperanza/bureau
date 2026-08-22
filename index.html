@@ -606,10 +606,11 @@ $('btn-signup').addEventListener('click', function(){
   if (!email || pass.length < 6) { showLoginError('Email valide et mot de passe de 6 caractères minimum.'); return; }
   $('login-error').classList.add('hidden');
 
-  // Le tout premier compte créé sur l'app devient automatiquement admin.
-  fbDb.collection('utilisateurs').limit(1).get().then(function(snap){
-    const premierCompte = snap.empty;
-    return fbAuth.createUserWithEmailAndPassword(email, pass).then(function(cred){
+  // Le compte doit d'abord exister (et être connecté) avant de pouvoir lire
+  // Firestore, car les règles de sécurité exigent request.auth != null.
+  fbAuth.createUserWithEmailAndPassword(email, pass).then(function(cred){
+    return fbDb.collection('utilisateurs').limit(1).get().then(function(snap){
+      const premierCompte = snap.empty;
       return fbDb.collection('utilisateurs').doc(cred.user.uid).set({
         email: email,
         role: premierCompte ? 'admin' : 'attente',

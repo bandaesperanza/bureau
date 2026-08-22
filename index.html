@@ -521,7 +521,11 @@ const firebaseConfig = {
 // Client ID OAuth Google (Google Cloud Console > Identifiants > ID client OAuth > Application Web)
 const GOOGLE_CLIENT_ID = "472267731196-4nfruaevj9as7ck5a5pbu7icoftvmfvr.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const DRIVE_DOSSIER_RACINE = "03 - Trésorerie";
+// Dossier "03 - Trésorerie" existant, partagé (d'où le resourcekey dans son URL) —
+// on cible son ID directement plutôt que de chercher par nom, sinon un doublon
+// est créé chez chaque compte Google qui n'en est pas le propriétaire.
+const DRIVE_RACINE_ID = "0Bx0GfIf67yNAfldhaHhkSlY4YS0yb2VCNVVRUkVPSWJRTzRLSW9yOG1OYng2MWRGOHJVcmM";
+const DRIVE_RACINE_RESOURCE_KEY = "0-GKnRhRTuxPiA4j2SZ1Fqbg";
 const DRIVE_SOUS_DOSSIER_COMPTA = "09-Comptabilité";
 
 /* ============================================================
@@ -1056,9 +1060,10 @@ function ensureDriveConnecte() {
   });
 }
 
-function driveFetch(url, options) {
+function driveFetch(url, options, resourceKeyHeader) {
   options = options || {};
   options.headers = Object.assign({}, options.headers, { 'Authorization': 'Bearer ' + state.driveAccessToken });
+  if (resourceKeyHeader) options.headers['X-Goog-Drive-Resource-Keys'] = resourceKeyHeader;
   return fetch(url, options).then(function(r){
     if (!r.ok) return r.text().then(function(t){ throw new Error('Drive API ' + r.status + ' : ' + t); });
     return r.json();
@@ -1066,20 +1071,22 @@ function driveFetch(url, options) {
 }
 
 function trouverOuCreerDossier(nom, parentId) {
+  // Le dossier racine partagé nécessite sa "resource key" sur toute requête qui
+  // le référence (recherche des enfants, création d'un enfant).
+  const resourceKeyHeader = (parentId === DRIVE_RACINE_ID) ? (DRIVE_RACINE_ID + '/' + DRIVE_RACINE_RESOURCE_KEY) : null;
   const q = encodeURIComponent("name='" + nom.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and '" + parentId + "' in parents and trashed=false");
-  return driveFetch('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id,name)&spaces=drive').then(function(data){
+  return driveFetch('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id,name)&spaces=drive&supportsAllDrives=true&includeItemsFromAllDrives=true', {}, resourceKeyHeader).then(function(data){
     if (data.files && data.files.length > 0) return data.files[0].id;
-    return driveFetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+    return driveFetch('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: nom, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] })
-    }).then(function(d){ return d.id; });
+    }, resourceKeyHeader).then(function(d){ return d.id; });
   });
 }
 
 function obtenirDossierActivite(type, activite, annee) {
-  return trouverOuCreerDossier(DRIVE_DOSSIER_RACINE, 'root')
-    .then(function(racineId){ return trouverOuCreerDossier(String(annee), racineId); })
+  return trouverOuCreerDossier(String(annee), DRIVE_RACINE_ID)
     .then(function(anneeId){ return trouverOuCreerDossier(DRIVE_SOUS_DOSSIER_COMPTA, anneeId); })
     .then(function(comptaId){ return trouverOuCreerDossier(type === 'depense' ? 'Dépenses' : 'Recettes', comptaId); })
     .then(function(typeId){ return trouverOuCreerDossier(activite, typeId); });

@@ -1566,9 +1566,14 @@ function renderAdminUsers() {
   state.usersList.forEach(function(u){
     const row = document.createElement('div');
     row.className = 'admin-item';
+    row.style.flexWrap = 'wrap';
     row.innerHTML =
       '<div><div class="admin-item-name">' + escHtml(u.email) + '</div>' +
       '<div class="admin-item-sub">' + u.id.slice(0,8) + '…</div></div>';
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end;';
+
     const pill = document.createElement('button');
     pill.className = 'role-pill ' + u.role;
     pill.textContent = u.role;
@@ -1578,7 +1583,39 @@ function renderAdminUsers() {
       const next = ROLES_CYCLE[(ROLES_CYCLE.indexOf(u.role) + 1) % ROLES_CYCLE.length];
       fbDb.collection('utilisateurs').doc(u.id).update({ role: next });
     });
-    row.appendChild(pill);
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'role-pill';
+    resetBtn.textContent = '✉️ Reset';
+    resetBtn.title = 'Envoyer un email de réinitialisation du mot de passe';
+    resetBtn.addEventListener('click', function(){
+      resetBtn.disabled = true;
+      fbAuth.sendPasswordResetEmail(u.email).then(function(){
+        toast('Email de réinitialisation envoyé à ' + u.email);
+      }).catch(function(err){
+        toast('Erreur : ' + err.message);
+      }).then(function(){ resetBtn.disabled = false; });
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'role-pill';
+    delBtn.style.color = 'var(--stamp)'; delBtn.style.borderColor = 'var(--stamp)';
+    delBtn.textContent = '✕ Supprimer';
+    delBtn.title = "Retirer l'accès de ce compte à l'app";
+    delBtn.addEventListener('click', function(){
+      if (u.id === state.user.uid) { toast('Tu ne peux pas supprimer ton propre compte.'); return; }
+      if (!confirm('Supprimer l\'accès de "' + u.email + '" ? Il ne pourra plus se connecter à l\'app (le compte Google reste indépendant).')) return;
+      fbDb.collection('utilisateurs').doc(u.id).delete().then(function(){
+        toast('Accès supprimé.');
+      }).catch(function(err){
+        toast('Erreur : ' + err.message);
+      });
+    });
+
+    actions.appendChild(pill);
+    actions.appendChild(resetBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
     el.appendChild(row);
   });
 }

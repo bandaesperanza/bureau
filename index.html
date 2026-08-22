@@ -127,11 +127,13 @@
   }
   .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .header-title-row { display: flex; align-items: center; gap: 8px; }
+  .header-logo { height: 24px; width: auto; display: block; border-radius: 4px; }
   .header-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; margin: 0; }
   .header-eyebrow {
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--gold); margin: 0 0 2px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 300;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: rgba(246,243,236,0.45); margin: 4px 0 0;
   }
   .header-btn {
     background: rgba(246,243,236,0.1); border: 1px solid rgba(246,243,236,0.25);
@@ -347,7 +349,7 @@
 <!-- ===================== ECRAN CONNEXION ===================== -->
 <div id="view-login" class="login-wrap hidden">
   <div class="login-card card">
-    <div class="login-logo"><img src="./logoheader.png" alt="Banda Esperanza" onerror="this.style.display='none'"></div>
+    <div class="login-logo"><img src="./logo-header.png" alt="Banda Esperanza" onerror="this.style.display='none'"></div>
     <h1 class="login-title">Trésorerie</h1>
     <p class="login-sub">Banda Esperanza Tyrosse</p>
 
@@ -391,8 +393,11 @@
   <header class="app-header">
     <div class="header-row">
       <div>
+        <div class="header-title-row">
+          <img src="./logo-header.png" class="header-logo" alt="" onerror="this.style.display='none'">
+          <h1 class="header-title">Banda Esperanza</h1>
+        </div>
         <p class="header-eyebrow" id="header-role-label">Trésorerie</p>
-        <h1 class="header-title">Banda Esperanza</h1>
       </div>
       <div class="header-actions">
         <button class="header-btn" id="btn-refresh" title="Actualiser">↻</button>
@@ -828,7 +833,7 @@ fbAuth.onAuthStateChanged(function(user){
     const isAdmin = role === 'admin';
     $('tab-activites').classList.toggle('hidden', !isAdmin);
     $('tab-users').classList.toggle('hidden', !isAdmin);
-    $('header-role-label').textContent = 'Trésorerie · ' + (isAdmin ? 'Administrateur' : 'Saisie') + ' · ' + user.email;
+    $('header-role-label').textContent = (isAdmin ? 'Administrateur' : 'Saisie') + ' · ' + user.email;
 
     chargerActivites().then(function(){
       demarrerEcouteTransactions();

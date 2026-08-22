@@ -110,10 +110,11 @@
   header.app-header {
     background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
     color: var(--paper);
-    padding: 18px 18px 14px;
+    padding: calc(18px + env(safe-area-inset-top)) 18px 14px;
     position: sticky; top: 0; z-index: 20;
   }
-  .header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .header-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; margin: 0; }
   .header-eyebrow {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -358,7 +359,11 @@
         <p class="header-eyebrow" id="header-role-label">Trésorerie</p>
         <h1 class="header-title">Banda Esperanza</h1>
       </div>
-      <button class="header-btn" id="btn-theme-toggle" title="Thème">🌙</button>
+      <div class="header-actions">
+        <button class="header-btn" id="btn-refresh" title="Actualiser">↻</button>
+        <button class="header-btn" id="btn-theme-toggle" title="Thème">🌙</button>
+        <button class="header-btn" id="btn-logout" title="Déconnexion">⎋</button>
+      </div>
     </div>
   </header>
 
@@ -460,6 +465,43 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- ===================== MODALE TRANSACTION (détail / édition) ===================== -->
+<div class="modal-backdrop hidden" id="tx-modal-backdrop">
+  <div class="modal-sheet">
+    <h2 class="modal-title">Transaction</h2>
+
+    <div id="tx-modal-readonly" class="hidden">
+      <div class="tx-meta" id="tx-modal-readonly-content" style="font-size:14px; line-height:1.6;"></div>
+    </div>
+
+    <div id="tx-modal-edit">
+      <div class="type-switch">
+        <button type="button" data-mtype="depense" id="mswitch-depense">− Dépense</button>
+        <button type="button" data-mtype="recette" id="mswitch-recette">+ Recette</button>
+      </div>
+      <label class="field-label">Date</label>
+      <input type="date" id="modal-date">
+      <label class="field-label">Montant (€)</label>
+      <input type="number" id="modal-montant" inputmode="decimal" step="0.01" min="0">
+      <label class="field-label">Activité</label>
+      <select id="modal-activite"></select>
+      <label class="field-label">Sous-activité</label>
+      <select id="modal-sousactivite"></select>
+      <label class="field-label">Note</label>
+      <textarea id="modal-note"></textarea>
+    </div>
+
+    <div id="modal-photo-link" class="tx-meta hidden" style="margin-top:12px;"></div>
+
+    <div style="display:flex; gap:8px; margin-top:18px;">
+      <button class="btn btn-secondary" id="btn-modal-close" style="width:auto; flex:1;">Fermer</button>
+      <button class="btn btn-ghost hidden" id="btn-modal-delete" style="width:auto; flex:1; color:var(--stamp); border-color:var(--stamp);">Supprimer</button>
+      <button class="btn btn-primary hidden" id="btn-modal-save" style="width:auto; flex:1;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 
 <script>
 /* ============================================================
@@ -569,6 +611,29 @@ $('btn-theme-toggle').addEventListener('click', function(){
   }
 });
 if (localStorage.getItem('tresorerie_theme') === 'dark') $('btn-theme-toggle').textContent = '☀️';
+
+$('btn-logout').addEventListener('click', function(){
+  if (confirm('Se déconnecter ?')) fbAuth.signOut();
+});
+
+$('btn-refresh').addEventListener('click', function(){
+  const btn = $('btn-refresh');
+  btn.textContent = '…';
+  const nettoyer = [];
+  if ('serviceWorker' in navigator) {
+    nettoyer.push(navigator.serviceWorker.getRegistrations().then(function(regs){
+      return Promise.all(regs.map(function(r){ return r.unregister(); }));
+    }));
+  }
+  if ('caches' in window) {
+    nettoyer.push(caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+    }));
+  }
+  Promise.all(nettoyer).finally(function(){
+    location.reload();
+  });
+});
 
 /* ============================================================
    AUTHENTIFICATION
@@ -801,10 +866,8 @@ function renderDashboard() {
         '<div class="tx-meta">' + formatDateShort(tx.date) + (tx.driveFileUrl ? '<span class="tx-photo-dot"></span>' : '') + '</div>' +
       '</div>' +
       '<div class="tx-amount ' + tx.type + '">' + (tx.type === 'recette' ? '+' : '−') + ' ' + formatMoney(tx.montant) + '</div>';
-    if (tx.driveFileUrl) {
-      row.style.cursor = 'pointer';
-      row.addEventListener('click', function(){ window.open(tx.driveFileUrl, '_blank'); });
-    }
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', function(){ ouvrirModalTransaction(tx); });
     listEl.appendChild(row);
   });
 }
@@ -1101,8 +1164,128 @@ function synchroniserPhotosEnAttente() {
 }
 
 /* ============================================================
-   ADMIN — GESTION DES ACTIVITES
+   MODALE TRANSACTION — détail (tous) / édition & suppression (admin)
    ============================================================ */
+let modalTxId = null;
+let modalType = 'depense';
+
+function ouvrirModalTransaction(tx) {
+  modalTxId = tx.id;
+  const isAdmin = state.role === 'admin';
+
+  $('tx-modal-edit').classList.toggle('hidden', !isAdmin);
+  $('tx-modal-readonly').classList.toggle('hidden', isAdmin);
+  $('btn-modal-delete').classList.toggle('hidden', !isAdmin);
+  $('btn-modal-save').classList.toggle('hidden', !isAdmin);
+
+  if (isAdmin) {
+    setModalType(tx.type);
+    $('modal-date').value = tx.date || todayIso();
+    $('modal-montant').value = tx.montant;
+    remplirModalActivites();
+    $('modal-activite').value = tx.activite;
+    remplirModalSousActivites();
+    $('modal-sousactivite').value = tx.sousActivite || '';
+    $('modal-note').value = tx.note || '';
+  } else {
+    $('tx-modal-readonly-content').innerHTML =
+      '<strong>' + escHtml(tx.activite || '') + (tx.sousActivite ? ' · ' + escHtml(tx.sousActivite) : '') + '</strong><br>' +
+      formatDateShort(tx.date) + ' · ' + (tx.type === 'recette' ? '+' : '−') + ' ' + formatMoney(tx.montant) +
+      (tx.note ? '<br>' + escHtml(tx.note) : '') +
+      '<br><span class="tx-meta">Saisi par ' + escHtml(tx.creeParEmail || '') + '</span>';
+  }
+
+  const photoLink = $('modal-photo-link');
+  if (tx.driveFileUrl) {
+    photoLink.innerHTML = '<a href="' + tx.driveFileUrl + '" target="_blank" style="color:var(--focus);">📎 Voir le justificatif</a>';
+    photoLink.classList.remove('hidden');
+  } else {
+    photoLink.classList.add('hidden');
+  }
+
+  $('tx-modal-backdrop').classList.remove('hidden');
+}
+
+$('btn-modal-close').addEventListener('click', fermerModalTransaction);
+$('tx-modal-backdrop').addEventListener('click', function(e){
+  if (e.target === this) fermerModalTransaction();
+});
+
+function fermerModalTransaction() {
+  $('tx-modal-backdrop').classList.add('hidden');
+  modalTxId = null;
+}
+
+function setModalType(type) {
+  modalType = type;
+  $('mswitch-depense').classList.toggle('active', type === 'depense');
+  $('mswitch-recette').classList.toggle('active', type === 'recette');
+  remplirModalActivites();
+}
+$('mswitch-depense').addEventListener('click', function(){ setModalType('depense'); });
+$('mswitch-recette').addEventListener('click', function(){ setModalType('recette'); });
+
+function remplirModalActivites() {
+  const liste = modalType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const sel = $('modal-activite');
+  sel.innerHTML = '';
+  liste.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a.nom; opt.textContent = a.nom;
+    sel.appendChild(opt);
+  });
+  remplirModalSousActivites();
+}
+$('modal-activite').addEventListener('change', remplirModalSousActivites);
+
+function remplirModalSousActivites() {
+  const liste = modalType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const act = liste.find(function(a){ return a.nom === $('modal-activite').value; });
+  const sel = $('modal-sousactivite');
+  sel.innerHTML = '';
+  (act ? act.sousActivites : []).forEach(function(s){
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  });
+}
+
+$('btn-modal-save').addEventListener('click', function(){
+  if (!modalTxId) return;
+  const montant = parseFloat($('modal-montant').value);
+  if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
+  const btn = $('btn-modal-save');
+  btn.disabled = true;
+  fbDb.collection('transactions').doc(modalTxId).update({
+    type: modalType,
+    date: $('modal-date').value || todayIso(),
+    montant: montant,
+    activite: $('modal-activite').value,
+    sousActivite: $('modal-sousactivite').value,
+    note: $('modal-note').value.trim(),
+    modifieLe: firebase.firestore.FieldValue.serverTimestamp(),
+    modifieParEmail: state.user.email
+  }).then(function(){
+    toast('Transaction modifiée.');
+    fermerModalTransaction();
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  }).then(function(){ btn.disabled = false; });
+});
+
+$('btn-modal-delete').addEventListener('click', function(){
+  if (!modalTxId) return;
+  if (!confirm('Supprimer définitivement cette transaction ? Cette action est irréversible.')) return;
+  const idASupprimer = modalTxId;
+  fbDb.collection('transactions').doc(idASupprimer).delete().then(function(){
+    toast('Transaction supprimée.');
+    fermerModalTransaction();
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  });
+});
+
+
 $('actswitch-depense').addEventListener('click', function(){ setAdminActType('depense'); });
 $('actswitch-recette').addEventListener('click', function(){ setAdminActType('recette'); });
 

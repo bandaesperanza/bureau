@@ -447,8 +447,18 @@
       </div>
     </section>
 
-    <!-- ---------- Admin : Utilisateurs ---------- -->
+    <!-- ---------- Admin : Administration (année comptable + comptes) ---------- -->
     <section id="view-users" class="view">
+      <div class="section-title">Année comptable</div>
+      <div class="card">
+        <div class="tx-meta" style="margin-bottom:10px;">
+          Crée dans Drive, sous "03 - Trésorerie", un dossier pour l'année
+          demandée avec sa structure complète (Factures, Comptabilité,
+          Bodéga…). À faire une fois en début de saison.
+        </div>
+        <button class="btn btn-drive" id="btn-lancer-annee">📁 Lancer l'année comptable</button>
+      </div>
+
       <div class="section-title">Comptes</div>
       <div class="card"><div id="admin-users-list"></div></div>
     </section>
@@ -460,7 +470,7 @@
     <button class="tab-btn active" data-view="dashboard"><span class="tab-icon">🏠</span>Accueil</button>
     <button class="tab-btn" data-view="form"><span class="tab-icon">➕</span>Saisie</button>
     <button class="tab-btn hidden" data-view="activites" id="tab-activites"><span class="tab-icon">🏷️</span>Activités</button>
-    <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">👥</span>Comptes</button>
+    <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">⚙️</span>Administration</button>
   </nav>
 </div>
 
@@ -528,6 +538,13 @@ const DRIVE_RACINE_ID = "0Bx0GfIf67yNAfldhaHhkSlY4YS0yb2VCNVVRUkVPSWJRTzRLSW9yOG
 const DRIVE_RACINE_RESOURCE_KEY = "0-GKnRhRTuxPiA4j2SZ1Fqbg";
 const DRIVE_SOUS_DOSSIER_COMPTA = "09-Comptabilité";
 
+// Structure standard créée dans Drive au lancement d'une nouvelle année comptable.
+const DOSSIERS_ANNEE_COMPTABLE = [
+  '01-Factures', '02-Relances Impayées', '03-Demandes Subventions',
+  '04-Paiements Musiciens', "05-Bilan Fin d'année", '06-Relevé de compte',
+  '07-Devis', '08-Quittance de Loyer', '09-Comptabilité', '10-Bodéga'
+];
+
 /* ============================================================
    INITIALISATION FIREBASE
    ============================================================ */
@@ -548,6 +565,7 @@ const state = {
   role: null,            // 'attente' | 'saisie' | 'admin' | 'bloque'
   activitesDepenses: [],
   activitesRecettes: [],
+  resourceKeys: { },   // rempli plus bas avec la clé du dossier racine
   transactions: [],
   filtre: 'tout',
   formType: 'depense',
@@ -559,6 +577,7 @@ const state = {
   usersList: [],
   adminActType: 'depense'
 };
+state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
 let unsubTx = null, unsubUsers = null;
 
@@ -1071,9 +1090,10 @@ function driveFetch(url, options, resourceKeyHeader) {
 }
 
 function trouverOuCreerDossier(nom, parentId) {
-  // Le dossier racine partagé nécessite sa "resource key" sur toute requête qui
-  // le référence (recherche des enfants, création d'un enfant).
-  const resourceKeyHeader = (parentId === DRIVE_RACINE_ID) ? (DRIVE_RACINE_ID + '/' + DRIVE_RACINE_RESOURCE_KEY) : null;
+  // Certains dossiers Drive existants (partagés, anciens) exigent leur "resource
+  // key" sur toute requête qui les référence — on la fournit si on la connaît.
+  const cle = state.resourceKeys[parentId];
+  const resourceKeyHeader = cle ? (parentId + '/' + cle) : null;
   const q = encodeURIComponent("name='" + nom.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and '" + parentId + "' in parents and trashed=false");
   return driveFetch('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id,name)&spaces=drive&supportsAllDrives=true&includeItemsFromAllDrives=true', {}, resourceKeyHeader).then(function(data){
     if (data.files && data.files.length > 0) return data.files[0].id;
@@ -1373,6 +1393,40 @@ $('btn-add-activite').addEventListener('click', function(){
     $('new-activite-name').value = '';
     renderAdminActivites();
     remplirSelectsActivite();
+  });
+});
+
+/* ============================================================
+   ADMIN — LANCER L'ANNEE COMPTABLE (structure Drive complète)
+   ============================================================ */
+$('btn-lancer-annee').addEventListener('click', function(){
+  const anneeDefaut = new Date().getFullYear();
+  const saisie = prompt('Année à créer dans Drive (ex. ' + anneeDefaut + ') :', String(anneeDefaut));
+  if (!saisie) return;
+  const annee = saisie.trim();
+  if (!/^\d{4}$/.test(annee)) { toast('Année invalide (format AAAA).'); return; }
+
+  const btn = $('btn-lancer-annee');
+  btn.disabled = true;
+  btn.textContent = 'Connexion Drive…';
+
+  ensureDriveConnecte().then(function(ok){
+    if (!ok) { toast('Connexion Drive nécessaire.'); return Promise.reject(new Error('ANNULE')); }
+    btn.textContent = 'Création en cours…';
+    return trouverOuCreerDossier(annee, DRIVE_RACINE_ID);
+  }).then(function(anneeId){
+    // Création séquentielle (pas en parallèle) pour éviter les doublons :
+    // chaque appel attend le précédent avant de vérifier l'existant.
+    return DOSSIERS_ANNEE_COMPTABLE.reduce(function(precedent, nomDossier){
+      return precedent.then(function(){ return trouverOuCreerDossier(nomDossier, anneeId); });
+    }, Promise.resolve());
+  }).then(function(){
+    toast('Structure ' + annee + ' créée dans Drive.');
+  }).catch(function(err){
+    if (err.message !== 'ANNULE') toast('Erreur : ' + err.message);
+  }).then(function(){
+    btn.disabled = false;
+    btn.textContent = '📁 Lancer l\'année comptable';
   });
 });
 

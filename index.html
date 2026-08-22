@@ -609,16 +609,21 @@ $('btn-signup').addEventListener('click', function(){
   // Le compte doit d'abord exister (et être connecté) avant de pouvoir lire
   // Firestore, car les règles de sécurité exigent request.auth != null.
   fbAuth.createUserWithEmailAndPassword(email, pass).then(function(cred){
-    return fbDb.collection('utilisateurs').limit(1).get().then(function(snap){
-      const premierCompte = snap.empty;
-      return fbDb.collection('utilisateurs').doc(cred.user.uid).set({
-        email: email,
-        role: premierCompte ? 'admin' : 'attente',
-        creeLe: firebase.firestore.FieldValue.serverTimestamp()
-      }).catch(function(err){ throw new Error('Ecriture profil : ' + err.message); });
-    }).catch(function(err){
-      if (err.message.indexOf('Ecriture profil') === 0) throw err;
-      throw new Error('Lecture liste utilisateurs : ' + err.message);
+    // Force le rafraîchissement du jeton avant tout appel Firestore : juste après
+    // la création du compte, le jeton peut ne pas être encore synchronisé, ce qui
+    // provoque un "Missing or insufficient permissions" sur le premier appel.
+    return cred.user.getIdToken(true).then(function(){
+      return fbDb.collection('utilisateurs').limit(1).get().then(function(snap){
+        const premierCompte = snap.empty;
+        return fbDb.collection('utilisateurs').doc(cred.user.uid).set({
+          email: email,
+          role: premierCompte ? 'admin' : 'attente',
+          creeLe: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(function(err){ throw new Error('Ecriture profil : ' + err.message); });
+      }).catch(function(err){
+        if (err.message.indexOf('Ecriture profil') === 0) throw err;
+        throw new Error('Lecture liste utilisateurs : ' + err.message);
+      });
     });
   }).catch(function(err){
     showLoginError(err.message || traduireErreurAuth(err));

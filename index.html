@@ -440,6 +440,9 @@
       </div>
 
       <div class="card" style="margin-top:14px;">
+        <label class="field-label">Numéro</label>
+        <div class="date-display" id="form-numero-display" style="font-family:'IBM Plex Mono', monospace; color: var(--ink-soft);">…</div>
+
         <label class="field-label">Date</label>
         <div class="date-field-wrap">
           <div class="date-display" id="form-date-display">Choisir…</div>
@@ -455,8 +458,11 @@
         <label class="field-label">Sous-activité</label>
         <select id="form-sousactivite"><option value="">— Choisir —</option></select>
 
-        <label class="field-label">Note (facultatif)</label>
-        <textarea id="form-note" placeholder="Précision libre…"></textarea>
+        <label class="field-label">Moyen de paiement</label>
+        <select id="form-moyen"><option value="">— Choisir —</option></select>
+
+        <label class="field-label">Libellé de l'opération</label>
+        <input type="text" id="form-libelle" placeholder="Ex. Location salle répétition mars">
 
         <label class="field-label">Justificatif</label>
         <div class="photo-zone">
@@ -538,6 +544,9 @@
     </div>
 
     <div id="tx-modal-edit">
+      <label class="field-label">Numéro</label>
+      <div class="date-display" id="modal-numero-display" style="font-family:'IBM Plex Mono', monospace; color: var(--ink-soft);">—</div>
+
       <div class="type-switch">
         <button type="button" data-mtype="depense" id="mswitch-depense">− Dépense</button>
         <button type="button" data-mtype="recette" id="mswitch-recette">+ Recette</button>
@@ -553,8 +562,10 @@
       <select id="modal-activite"></select>
       <label class="field-label">Sous-activité</label>
       <select id="modal-sousactivite"></select>
-      <label class="field-label">Note</label>
-      <textarea id="modal-note"></textarea>
+      <label class="field-label">Moyen de paiement</label>
+      <select id="modal-moyen"><option value="">— Choisir —</option></select>
+      <label class="field-label">Libellé de l'opération</label>
+      <input type="text" id="modal-libelle">
     </div>
 
     <div id="modal-photo-link" class="tx-meta hidden" style="margin-top:12px;"></div>
@@ -624,6 +635,8 @@ const state = {
   transactions: [],
   filtre: 'tout',
   formType: 'depense',
+  formNumero: null,
+  formNumeroAnnee: null,
   formPhotoBlob: null,
   formPhotoName: null,
   driveAccessToken: null,
@@ -867,6 +880,26 @@ const ACTIVITES_FIXES_RECETTES = [
   'Sainte Cécile', 'Recettes diverses', 'Bodega'
 ];
 
+const MOYENS_PAIEMENT_DEPENSE = ['Chèque', 'CB', 'Prélèvement', 'Virement', 'Souscription'];
+const MOYENS_PAIEMENT_RECETTE = ['Intérêt', 'Remise de chèque', "Versement d'espèces", 'Virement'];
+
+// Numéro unique par transaction : {année}-{compteur sur 4 chiffres}, ex. "2026-0007".
+// Le compteur est incrémenté de façon atomique côté Firestore (runTransaction)
+// pour garantir l'unicité même si deux personnes saisissent en même temps.
+function genererNumeroTransaction(annee) {
+  const ref = fbDb.collection('compteurs').doc(String(annee));
+  return fbDb.runTransaction(function(transaction){
+    return transaction.get(ref).then(function(doc){
+      const dernier = (doc.exists && doc.data().dernier) ? doc.data().dernier : 0;
+      const nouveau = dernier + 1;
+      transaction.set(ref, { dernier: nouveau });
+      return nouveau;
+    });
+  }).then(function(nouveau){
+    return String(annee) + '-' + String(nouveau).padStart(4, '0');
+  });
+}
+
 // Aligne la liste stockée sur la liste fixe : ajoute les manquantes, retire
 // celles qui ne sont plus dans la liste fixe, et conserve les sous-activités
 // déjà saisies pour les activités qui existaient déjà sous le même nom.
@@ -957,7 +990,8 @@ function renderDashboard() {
       '<div class="tx-icon ' + tx.type + '">' + (tx.type === 'recette' ? '↑' : '↓') + '</div>' +
       '<div class="tx-main">' +
         '<div class="tx-activite">' + escHtml(tx.activite || '') + (tx.sousActivite ? ' · ' + escHtml(tx.sousActivite) : '') + '</div>' +
-        '<div class="tx-meta">' + formatDateShort(tx.date) + (tx.driveFileUrl ? '<span class="tx-photo-dot"></span>' : '') + '</div>' +
+        (tx.libelle ? '<div class="tx-meta">' + escHtml(tx.libelle) + '</div>' : '') +
+        '<div class="tx-meta">' + (tx.numero ? escHtml(tx.numero) + ' · ' : '') + formatDateShort(tx.date) + (tx.driveFileUrl ? '<span class="tx-photo-dot"></span>' : '') + '</div>' +
       '</div>' +
       '<div class="tx-amount ' + tx.type + '">' + (tx.type === 'recette' ? '+' : '−') + ' ' + formatMoney(tx.montant) + '</div>';
     row.style.cursor = 'pointer';
@@ -983,6 +1017,20 @@ function setFormType(type) {
   $('switch-depense').classList.toggle('active', type === 'depense');
   $('switch-recette').classList.toggle('active', type === 'recette');
   remplirSelectsActivite();
+  remplirMoyensPaiement();
+}
+
+function remplirMoyensPaiement() {
+  const liste = state.formType === 'depense' ? MOYENS_PAIEMENT_DEPENSE : MOYENS_PAIEMENT_RECETTE;
+  const sel = $('form-moyen');
+  const valeurActuelle = sel.value;
+  sel.innerHTML = '<option value="">— Choisir —</option>';
+  liste.forEach(function(m){
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  if (liste.indexOf(valeurActuelle) !== -1) sel.value = valeurActuelle;
 }
 
 function remplirSelectsActivite() {
@@ -1060,13 +1108,32 @@ function resetForm() {
   $('form-date').value = todayIso();
   $('form-date-display').textContent = formatDateLongue($('form-date').value);
   $('form-montant').value = '';
-  $('form-note').value = '';
+  $('form-libelle').value = '';
   state.formPhotoBlob = null;
   state.formPhotoName = null;
   $('form-photo-preview').classList.add('hidden');
   $('form-photo-status').textContent = '';
   setFormType(state.formType);
+  rafraichirNumeroFormulaire();
 }
+
+// Régénère (réserve) un numéro dès que l'année de la date saisie change.
+function rafraichirNumeroFormulaire() {
+  const annee = ($('form-date').value || todayIso()).slice(0, 4);
+  if (state.formNumeroAnnee === annee && state.formNumero) return;
+  $('form-numero-display').textContent = 'Génération…';
+  genererNumeroTransaction(annee).then(function(numero){
+    state.formNumero = numero;
+    state.formNumeroAnnee = annee;
+    $('form-numero-display').textContent = numero;
+  }).catch(function(err){
+    $('form-numero-display').textContent = '—';
+    toast('Numéro non généré : ' + err.message);
+  });
+}
+
+$('form-date').addEventListener('change', rafraichirNumeroFormulaire);
+$('form-date').addEventListener('input', rafraichirNumeroFormulaire);
 
 $('btn-take-photo').addEventListener('click', function(){ $('input-photo-camera').click(); });
 $('btn-pick-photo').addEventListener('click', function(){ $('input-photo-gallery').click(); });
@@ -1095,23 +1162,29 @@ function enregistrerTransaction() {
   const montant = parseFloat($('form-montant').value);
   const activite = $('form-activite').value;
   const sousActivite = $('form-sousactivite').value;
-  const note = $('form-note').value.trim();
+  const moyenPaiement = $('form-moyen').value;
+  const libelle = $('form-libelle').value.trim();
 
   if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
   if (!activite) { toast('Choisis une activité.'); return; }
   if (!sousActivite) { toast('Choisis une sous-activité.'); return; }
+  if (!moyenPaiement) { toast('Choisis un moyen de paiement.'); return; }
+  if (!libelle) { toast("Le libellé de l'opération est obligatoire."); return; }
+  if (!state.formNumero) { toast('Numéro pas encore généré, patiente un instant.'); return; }
 
   const btn = $('btn-save-tx');
   btn.disabled = true;
   btn.textContent = 'Enregistrement…';
 
   const txData = {
+    numero: state.formNumero,
     type: state.formType,
     date: date,
     montant: montant,
     activite: activite,
     sousActivite: sousActivite,
-    note: note,
+    moyenPaiement: moyenPaiement,
+    libelle: libelle,
     creeParUid: state.user.uid,
     creeParEmail: state.user.email,
     creeLe: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1127,7 +1200,7 @@ function enregistrerTransaction() {
 
   drivePromise.then(function(connecte){
     if (photoBlob && connecte) {
-      return uploaderFactureDrive(photoBlob, photoName, state.formType, activite, sousActivite, date, note)
+      return uploaderFactureDrive(photoBlob, photoName, state.formType, activite, sousActivite, date, libelle)
         .then(function(res){
           txData.driveFileId = res.id;
           txData.driveFileUrl = res.webViewLink;
@@ -1149,6 +1222,8 @@ function enregistrerTransaction() {
     return fbDb.collection('transactions').add(txData);
   }).then(function(){
     toast('Transaction enregistrée.');
+    state.formNumero = null;
+    state.formNumeroAnnee = null;
     showView('dashboard');
   }).catch(function(err){
     console.error(err);
@@ -1235,12 +1310,12 @@ function extensionDepuisFichier(nomFichier, mimeType) {
   return correspondances[mimeType] || '.jpg';
 }
 
-function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, note) {
+function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, libelle) {
   const annee = (date || todayIso()).slice(0, 4);
   return obtenirDossierActivite(type, activite, annee).then(function(folderId){
     const extension = extensionDepuisFichier(nomFichier, blob.type);
-    const noteAssainie = (note || '').trim().replace(/[\/\\]/g, '-').slice(0, 40);
-    const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + (noteAssainie ? '_' + noteAssainie : '') + extension;
+    const libelleAssaini = (libelle || '').trim().replace(/[\/\\]/g, '-').slice(0, 40);
+    const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + (libelleAssaini ? '_' + libelleAssaini : '') + extension;
     const metadata = { name: nomFinal, parents: [folderId] };
     const boundary = '-------tresorerie' + Date.now();
     return blob.arrayBuffer().then(function(buf){
@@ -1290,7 +1365,7 @@ function enfilerPhotoEnAttente(blob, nomFichier, txData) {
     tx.objectStore('photos_en_attente').add({
       blob: blob, nomFichier: nomFichier,
       type: txData.type, activite: txData.activite, sousActivite: txData.sousActivite,
-      date: txData.date, note: txData.note
+      date: txData.date, libelle: txData.libelle
     });
   }).catch(function(e){ console.error('Enfilage photo échoué :', e); });
 }
@@ -1305,7 +1380,7 @@ function synchroniserPhotosEnAttente() {
         if (!ok) { toast('Connexion Drive nécessaire pour synchroniser.'); return; }
         let done = 0;
         items.forEach(function(item){
-          uploaderFactureDrive(item.blob, item.nomFichier, item.type, item.activite, item.sousActivite, item.date, item.note)
+          uploaderFactureDrive(item.blob, item.nomFichier, item.type, item.activite, item.sousActivite, item.date, item.libelle)
             .then(function(){
               const delTx = db.transaction('photos_en_attente', 'readwrite');
               delTx.objectStore('photos_en_attente').delete(item.id);
@@ -1336,6 +1411,7 @@ function ouvrirModalTransaction(tx) {
 
   if (isAdmin) {
     setModalType(tx.type);
+    $('modal-numero-display').textContent = tx.numero || '—';
     $('modal-date').value = tx.date || todayIso();
     $('modal-date-display').textContent = formatDateLongue($('modal-date').value);
     $('modal-montant').value = tx.montant;
@@ -1343,13 +1419,16 @@ function ouvrirModalTransaction(tx) {
     $('modal-activite').value = tx.activite;
     remplirModalSousActivites();
     $('modal-sousactivite').value = tx.sousActivite || '';
-    $('modal-note').value = tx.note || '';
+    remplirModalMoyensPaiement();
+    $('modal-moyen').value = tx.moyenPaiement || '';
+    $('modal-libelle').value = tx.libelle || '';
   } else {
     $('tx-modal-readonly-content').innerHTML =
       '<strong>' + escHtml(tx.activite || '') + (tx.sousActivite ? ' · ' + escHtml(tx.sousActivite) : '') + '</strong><br>' +
       formatDateShort(tx.date) + ' · ' + (tx.type === 'recette' ? '+' : '−') + ' ' + formatMoney(tx.montant) +
-      (tx.note ? '<br>' + escHtml(tx.note) : '') +
-      '<br><span class="tx-meta">Saisi par ' + escHtml(tx.creeParEmail || '') + '</span>';
+      (tx.libelle ? '<br>' + escHtml(tx.libelle) : '') +
+      (tx.moyenPaiement ? '<br>' + escHtml(tx.moyenPaiement) : '') +
+      '<br><span class="tx-meta">' + escHtml(tx.numero || '') + ' · Saisi par ' + escHtml(tx.creeParEmail || '') + '</span>';
   }
 
   const photoLink = $('modal-photo-link');
@@ -1378,9 +1457,23 @@ function setModalType(type) {
   $('mswitch-depense').classList.toggle('active', type === 'depense');
   $('mswitch-recette').classList.toggle('active', type === 'recette');
   remplirModalActivites();
+  remplirModalMoyensPaiement();
 }
 $('mswitch-depense').addEventListener('click', function(){ setModalType('depense'); });
 $('mswitch-recette').addEventListener('click', function(){ setModalType('recette'); });
+
+function remplirModalMoyensPaiement() {
+  const liste = modalType === 'depense' ? MOYENS_PAIEMENT_DEPENSE : MOYENS_PAIEMENT_RECETTE;
+  const sel = $('modal-moyen');
+  const valeurActuelle = sel.value;
+  sel.innerHTML = '<option value="">— Choisir —</option>';
+  liste.forEach(function(m){
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  if (liste.indexOf(valeurActuelle) !== -1) sel.value = valeurActuelle;
+}
 
 function remplirModalActivites() {
   const liste = modalType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
@@ -1422,6 +1515,10 @@ $('btn-modal-save').addEventListener('click', function(){
   if (!modalTxId) return;
   const montant = parseFloat($('modal-montant').value);
   if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
+  const libelle = $('modal-libelle').value.trim();
+  if (!libelle) { toast("Le libellé de l'opération est obligatoire."); return; }
+  const moyenPaiement = $('modal-moyen').value;
+  if (!moyenPaiement) { toast('Choisis un moyen de paiement.'); return; }
   const btn = $('btn-modal-save');
   btn.disabled = true;
   fbDb.collection('transactions').doc(modalTxId).update({
@@ -1430,7 +1527,8 @@ $('btn-modal-save').addEventListener('click', function(){
     montant: montant,
     activite: $('modal-activite').value,
     sousActivite: $('modal-sousactivite').value,
-    note: $('modal-note').value.trim(),
+    moyenPaiement: moyenPaiement,
+    libelle: libelle,
     modifieLe: firebase.firestore.FieldValue.serverTimestamp(),
     modifieParEmail: state.user.email
   }).then(function(){

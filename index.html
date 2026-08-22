@@ -521,7 +521,8 @@ const firebaseConfig = {
 // Client ID OAuth Google (Google Cloud Console > Identifiants > ID client OAuth > Application Web)
 const GOOGLE_CLIENT_ID = "472267731196-4nfruaevj9as7ck5a5pbu7icoftvmfvr.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const DRIVE_ROOT_FOLDER_NAME = "Trésorerie Banda Esperanza";
+const DRIVE_DOSSIER_RACINE = "03 - Trésorerie";
+const DRIVE_SOUS_DOSSIER_COMPTA = "09-Comptabilité";
 
 /* ============================================================
    INITIALISATION FIREBASE
@@ -1076,14 +1077,17 @@ function trouverOuCreerDossier(nom, parentId) {
   });
 }
 
-function obtenirDossierActivite(type, activite) {
-  return trouverOuCreerDossier(DRIVE_ROOT_FOLDER_NAME, 'root')
-    .then(function(rootId){ return trouverOuCreerDossier(type === 'depense' ? 'Dépenses' : 'Recettes', rootId); })
+function obtenirDossierActivite(type, activite, annee) {
+  return trouverOuCreerDossier(DRIVE_DOSSIER_RACINE, 'root')
+    .then(function(racineId){ return trouverOuCreerDossier(String(annee), racineId); })
+    .then(function(anneeId){ return trouverOuCreerDossier(DRIVE_SOUS_DOSSIER_COMPTA, anneeId); })
+    .then(function(comptaId){ return trouverOuCreerDossier(type === 'depense' ? 'Dépenses' : 'Recettes', comptaId); })
     .then(function(typeId){ return trouverOuCreerDossier(activite, typeId); });
 }
 
 function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, montant) {
-  return obtenirDossierActivite(type, activite).then(function(folderId){
+  const annee = (date || todayIso()).slice(0, 4);
+  return obtenirDossierActivite(type, activite, annee).then(function(folderId){
     const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + '_' + montant.toFixed(2) + '€_' + nomFichier;
     const metadata = { name: nomFinal, parents: [folderId] };
     const boundary = '-------tresorerie' + Date.now();

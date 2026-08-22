@@ -475,8 +475,9 @@
       <button class="btn btn-ghost" id="btn-cancel-tx" style="margin-top:10px;">Annuler</button>
     </section>
 
-    <!-- ---------- Admin : Activités (liste fixe ; sous-activités modifiables) ---------- -->
-    <section id="view-activites" class="view">
+    <!-- ---------- Admin : Administration (activités, année comptable, comptes) ---------- -->
+    <section id="view-users" class="view">
+      <div class="section-title">Activités (sous-activités modifiables)</div>
       <div class="type-switch">
         <button type="button" class="active depense" data-atype="depense" id="actswitch-depense">Dépenses</button>
         <button type="button" class="recette" data-atype="recette" id="actswitch-recette">Recettes</button>
@@ -487,10 +488,7 @@
       <div class="card" style="margin-top:10px;">
         <div id="admin-activites-list"></div>
       </div>
-    </section>
 
-    <!-- ---------- Admin : Administration (année comptable + comptes) ---------- -->
-    <section id="view-users" class="view">
       <div class="section-title">Année comptable</div>
       <div class="card">
         <div class="tx-meta" style="margin-bottom:10px;">
@@ -511,7 +509,6 @@
   <nav class="tabbar">
     <button class="tab-btn active" data-view="dashboard"><span class="tab-icon">🏠</span>Accueil</button>
     <button class="tab-btn" data-view="form"><span class="tab-icon">➕</span>Saisie</button>
-    <button class="tab-btn hidden" data-view="activites" id="tab-activites"><span class="tab-icon">🏷️</span>Activités</button>
     <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">⚙️</span>Admin</button>
   </nav>
 </div>
@@ -830,7 +827,6 @@ fbAuth.onAuthStateChanged(function(user){
     $('app-shell').classList.remove('hidden');
 
     const isAdmin = role === 'admin';
-    $('tab-activites').classList.toggle('hidden', !isAdmin);
     $('tab-users').classList.toggle('hidden', !isAdmin);
     $('header-role-label').textContent = (isAdmin ? 'Administrateur' : 'Saisie') + ' · ' + user.email;
 

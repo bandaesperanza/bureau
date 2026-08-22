@@ -990,18 +990,62 @@ function remplirSelectsActivite() {
 
 $('form-activite').addEventListener('change', remplirSousActivites);
 
-function remplirSousActivites() {
-  const liste = state.formType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
-  const activiteChoisie = $('form-activite').value;
-  const act = liste.find(function(a){ return a.nom === activiteChoisie; });
-  const sel = $('form-sousactivite');
+const VALEUR_AJOUT_SOUS_ACTIVITE = '__ajouter_sous_activite__';
+
+// Remplit un <select> de sous-activités, avec en plus une option "+ Nouvelle
+// sous-activité…" pour les admins (seuls autorisés à écrire dans "config").
+function remplirOptionsSousActivite(sel, act) {
   sel.innerHTML = '<option value="">— Choisir —</option>';
   (act ? act.sousActivites : []).forEach(function(s){
     const opt = document.createElement('option');
     opt.value = s; opt.textContent = s;
     sel.appendChild(opt);
   });
+  if (state.role === 'admin' && act) {
+    const opt = document.createElement('option');
+    opt.value = VALEUR_AJOUT_SOUS_ACTIVITE;
+    opt.textContent = '+ Nouvelle sous-activité…';
+    sel.appendChild(opt);
+  }
 }
+
+// Demande le nom, l'ajoute en mémoire à l'activité concernée, et renvoie la
+// valeur saisie (ou null si annulé) — l'appelant se charge de sauvegarder.
+function demanderNouvelleSousActivite(liste, nomActivite) {
+  const nom = prompt('Nouvelle sous-activité pour "' + nomActivite + '" :');
+  if (!nom) return null;
+  const val = nom.trim();
+  if (!val) return null;
+  const act = liste.find(function(a){ return a.nom === nomActivite; });
+  if (!act) return null;
+  act.sousActivites = act.sousActivites || [];
+  if (act.sousActivites.indexOf(val) === -1) act.sousActivites.push(val);
+  return val;
+}
+
+function remplirSousActivites() {
+  const liste = state.formType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const activiteChoisie = $('form-activite').value;
+  const act = liste.find(function(a){ return a.nom === activiteChoisie; });
+  remplirOptionsSousActivite($('form-sousactivite'), act);
+}
+
+$('form-sousactivite').addEventListener('change', function(){
+  if (this.value !== VALEUR_AJOUT_SOUS_ACTIVITE) return;
+  const liste = state.formType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const nomActivite = $('form-activite').value;
+  const type = state.formType;
+  const nouvelle = demanderNouvelleSousActivite(liste, nomActivite);
+  if (!nouvelle) { remplirSousActivites(); return; }
+  sauvegarderActivites(type).then(function(){
+    remplirSousActivites();
+    $('form-sousactivite').value = nouvelle;
+    toast('Sous-activité ajoutée.');
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+    remplirSousActivites();
+  });
+});
 
 function resetForm() {
   $('form-date').value = todayIso();
@@ -1345,14 +1389,25 @@ $('modal-activite').addEventListener('change', remplirModalSousActivites);
 function remplirModalSousActivites() {
   const liste = modalType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
   const act = liste.find(function(a){ return a.nom === $('modal-activite').value; });
-  const sel = $('modal-sousactivite');
-  sel.innerHTML = '';
-  (act ? act.sousActivites : []).forEach(function(s){
-    const opt = document.createElement('option');
-    opt.value = s; opt.textContent = s;
-    sel.appendChild(opt);
-  });
+  remplirOptionsSousActivite($('modal-sousactivite'), act);
 }
+
+$('modal-sousactivite').addEventListener('change', function(){
+  if (this.value !== VALEUR_AJOUT_SOUS_ACTIVITE) return;
+  const liste = modalType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const nomActivite = $('modal-activite').value;
+  const type = modalType;
+  const nouvelle = demanderNouvelleSousActivite(liste, nomActivite);
+  if (!nouvelle) { remplirModalSousActivites(); return; }
+  sauvegarderActivites(type).then(function(){
+    remplirModalSousActivites();
+    $('modal-sousactivite').value = nouvelle;
+    toast('Sous-activité ajoutée.');
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+    remplirModalSousActivites();
+  });
+});
 
 $('btn-modal-save').addEventListener('click', function(){
   if (!modalTxId) return;

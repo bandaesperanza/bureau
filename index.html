@@ -475,18 +475,17 @@
       <button class="btn btn-ghost" id="btn-cancel-tx" style="margin-top:10px;">Annuler</button>
     </section>
 
-    <!-- ---------- Admin : Activités ---------- -->
+    <!-- ---------- Admin : Activités (liste fixe ; sous-activités modifiables) ---------- -->
     <section id="view-activites" class="view">
       <div class="type-switch">
         <button type="button" class="active depense" data-atype="depense" id="actswitch-depense">Dépenses</button>
         <button type="button" class="recette" data-atype="recette" id="actswitch-recette">Recettes</button>
       </div>
-      <div class="card" style="margin-top:14px;">
+      <div class="tx-meta" style="margin: 10px 2px 0;">
+        La liste des activités est fixe. Seules les sous-activités sont modifiables.
+      </div>
+      <div class="card" style="margin-top:10px;">
         <div id="admin-activites-list"></div>
-        <div style="margin-top:10px; display:flex; gap:8px;">
-          <input type="text" id="new-activite-name" placeholder="Nouvelle activité…">
-          <button class="btn btn-secondary" style="width:auto; white-space:nowrap;" id="btn-add-activite">Ajouter</button>
-        </div>
       </div>
     </section>
 
@@ -835,7 +834,7 @@ fbAuth.onAuthStateChanged(function(user){
     $('tab-users').classList.toggle('hidden', !isAdmin);
     $('header-role-label').textContent = (isAdmin ? 'Administrateur' : 'Saisie') + ' · ' + user.email;
 
-    chargerActivites().then(function(){
+    chargerActivites(isAdmin).then(function(){
       demarrerEcouteTransactions();
       remplirSelectsActivite();
       if (isAdmin) {
@@ -847,44 +846,43 @@ fbAuth.onAuthStateChanged(function(user){
 });
 
 /* ============================================================
-   ACTIVITES (config) — chargées une fois, avec valeurs d'exemple
-   à ajuster ensuite depuis l'onglet Activités (admin)
+   ACTIVITES (config) — liste fixe, non modifiable au niveau "activité".
+   Seules les sous-activités restent gérables depuis l'onglet Activités (admin).
    ============================================================ */
-const ACTIVITES_EXEMPLE_DEPENSES = [
-  { nom: 'Instruments', sousActivites: ['Achat', 'Réparation', 'Entretien'] },
-  { nom: 'Concerts & prestations', sousActivites: ['Déplacement', 'Restauration', 'Location matériel'] },
-  { nom: 'Partitions', sousActivites: ['Achat', 'Reliure / impression'] },
-  { nom: 'Répétitions', sousActivites: ['Location salle', 'Petit matériel'] },
-  { nom: 'Administratif', sousActivites: ['Assurance', 'Cotisations fédération', 'Frais bancaires'] },
-  { nom: 'Communication', sousActivites: ['Impression flyers', 'Site internet'] }
+const ACTIVITES_FIXES_DEPENSES = [
+  'Local', 'Fonctionnement', 'Instruments/Partitions', 'Animation',
+  'Sainte Cécile', 'Dépenses Diverses', 'Bodega'
 ];
-const ACTIVITES_EXEMPLE_RECETTES = [
-  { nom: 'Concerts & prestations', sousActivites: ['Cachet', 'Billetterie', 'Buvette'] },
-  { nom: 'Subventions', sousActivites: ['Mairie', 'Département', 'Région'] },
-  { nom: 'Cotisations', sousActivites: ['Adhésions membres'] },
-  { nom: 'Dons & sponsoring', sousActivites: ['Dons particuliers', 'Sponsoring entreprises'] },
-  { nom: 'Événements', sousActivites: ['Merchandising', 'Tombola'] }
+const ACTIVITES_FIXES_RECETTES = [
+  'Contrats', 'Subventions/cotisations/Interets', 'Animation',
+  'Sainte Cécile', 'Recettes diverses', 'Bodega'
 ];
 
-function chargerActivites() {
+// Aligne la liste stockée sur la liste fixe : ajoute les manquantes, retire
+// celles qui ne sont plus dans la liste fixe, et conserve les sous-activités
+// déjà saisies pour les activités qui existaient déjà sous le même nom.
+function reconcilierActivites(listeActuelle, nomsFixes) {
+  return nomsFixes.map(function(nom){
+    const existant = (listeActuelle || []).find(function(a){ return a.nom === nom; });
+    return { nom: nom, sousActivites: existant ? (existant.sousActivites || []) : [] };
+  });
+}
+
+function chargerActivites(estAdmin) {
   const refD = fbDb.collection('config').doc('activitesDepenses');
   const refR = fbDb.collection('config').doc('activitesRecettes');
   return Promise.all([refD.get(), refR.get()]).then(function(results){
     const docD = results[0], docR = results[1];
-    const jobs = [];
-    if (docD.exists) {
-      state.activitesDepenses = docD.data().liste || [];
-    } else {
-      state.activitesDepenses = ACTIVITES_EXEMPLE_DEPENSES;
-      jobs.push(refD.set({ liste: ACTIVITES_EXEMPLE_DEPENSES }));
-    }
-    if (docR.exists) {
-      state.activitesRecettes = docR.data().liste || [];
-    } else {
-      state.activitesRecettes = ACTIVITES_EXEMPLE_RECETTES;
-      jobs.push(refR.set({ liste: ACTIVITES_EXEMPLE_RECETTES }));
-    }
-    return Promise.all(jobs);
+    state.activitesDepenses = reconcilierActivites(docD.exists ? docD.data().liste : [], ACTIVITES_FIXES_DEPENSES);
+    state.activitesRecettes = reconcilierActivites(docR.exists ? docR.data().liste : [], ACTIVITES_FIXES_RECETTES);
+    // Seul un admin a le droit d'écrire dans "config" (règles Firestore) —
+    // on persiste la réconciliation seulement dans ce cas ; les autres
+    // utilisent la version réconciliée en mémoire pour la session en cours.
+    if (!estAdmin) return;
+    return Promise.all([
+      refD.set({ liste: state.activitesDepenses }),
+      refR.set({ liste: state.activitesRecettes })
+    ]);
   });
 }
 
@@ -1415,14 +1413,6 @@ function renderAdminActivites() {
     const top = document.createElement('div');
     top.style.display = 'flex'; top.style.justifyContent = 'space-between'; top.style.alignItems = 'center';
     top.innerHTML = '<div class="admin-item-name">' + escHtml(act.nom) + '</div>';
-    const delBtn = document.createElement('button');
-    delBtn.className = 'role-pill'; delBtn.textContent = 'Supprimer';
-    delBtn.addEventListener('click', function(){
-      if (!confirm('Supprimer l\'activité "' + act.nom + '" ?')) return;
-      liste.splice(idx, 1);
-      sauvegarderActivites(state.adminActType).then(renderAdminActivites);
-    });
-    top.appendChild(delBtn);
     wrap.appendChild(top);
 
     const tagsWrap = document.createElement('div');
@@ -1458,18 +1448,6 @@ function renderAdminActivites() {
     el.appendChild(wrap);
   });
 }
-
-$('btn-add-activite').addEventListener('click', function(){
-  const nom = $('new-activite-name').value.trim();
-  if (!nom) return;
-  const liste = state.adminActType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
-  liste.push({ nom: nom, sousActivites: [] });
-  sauvegarderActivites(state.adminActType).then(function(){
-    $('new-activite-name').value = '';
-    renderAdminActivites();
-    remplirSelectsActivite();
-  });
-});
 
 /* ============================================================
    ADMIN — LANCER L'ANNEE COMPTABLE (structure Drive complète)

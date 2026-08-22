@@ -91,7 +91,6 @@
     color: var(--ink);
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .hidden { display: none !important; }
@@ -106,12 +105,25 @@
     font-size: 13px; letter-spacing: 0.04em;
   }
 
+  /* ---------- Coquille applicative : colonne flex pleine hauteur ----------
+     iOS Safari place mal les éléments "position: fixed" quand la page est
+     plus courte que l'écran (pas de scroll) : ils se calent en bas du
+     contenu, pas en bas de l'écran. On évite le problème en n'utilisant
+     jamais "fixed" pour l'en-tête/la nav — la colonne flex fait tout le
+     travail, quelle que soit la quantité de contenu. */
+  #app-shell {
+    display: flex; flex-direction: column;
+    height: 100dvh; height: 100vh; /* repli pour les navigateurs sans dvh */
+    overflow: hidden;
+    position: relative; /* ancre pour le bouton + flottant, sans utiliser "fixed" */
+  }
+
   /* ---------- En-tête ---------- */
   header.app-header {
     background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
     color: var(--paper);
     padding: calc(18px + env(safe-area-inset-top)) 18px 14px;
-    position: sticky; top: 0; z-index: 20;
+    flex-shrink: 0;
   }
   .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
@@ -130,7 +142,7 @@
 
   /* ---------- Nav basse ---------- */
   nav.tabbar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    flex-shrink: 0;
     display: flex; background: var(--card); border-top: 1px solid var(--rule);
     padding-bottom: env(safe-area-inset-bottom);
     box-shadow: 0 -2px 10px rgba(32,29,61,0.06);
@@ -148,7 +160,11 @@
   }
   .tab-btn.active { color: var(--stamp); }
 
-  main { padding: 16px 16px 90px; max-width: 640px; margin: 0 auto; }
+  main {
+    flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 16px 16px 90px; max-width: 640px; margin: 0 auto; width: 100%;
+    box-sizing: border-box;
+  }
 
   .view { display: none; }
   .view.active { display: block; }
@@ -255,7 +271,7 @@
 
   /* FAB */
   .fab {
-    position: fixed; right: 18px; bottom: 82px; z-index: 25;
+    position: absolute; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 78px); z-index: 25;
     width: 56px; height: 56px; border-radius: 50%; background: var(--stamp);
     color: #fff; font-size: 28px; border: none; box-shadow: 0 4px 14px rgba(196,48,42,0.4);
     display: flex; align-items: center; justify-content: center; cursor: pointer;

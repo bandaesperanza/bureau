@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#15122E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trésorerie">
+<title>Trésorerie — Banda Esperanza</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon180.png">
+<link rel="icon" href="./icon192.png">
+
+<!-- Anti-flash dark mode : applique le thème stocké avant le premier rendu -->
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('tresorerie_theme');
+    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch(e) {}
+})();
+</script>
+
+<!-- Firebase (compat SDK, cohérent avec la partothèque) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+
+<!-- Google Identity Services : connexion Drive pour l'upload des factures -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<style>
+  /* Polices : mêmes familles que la partothèque. Copier le dossier ./fonts/
+     depuis le repo Esperanza pour repasser en auto-hébergé (offline fiable).
+     En attendant, secours via Google Fonts. */
+  @font-face {
+    font-family: 'Fraunces';
+    src: url('./fonts/fraunces-variable.woff2') format('woff2-variations'), url('./fonts/fraunces-variable.woff2') format('woff2');
+    font-weight: 100 900; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Inter';
+    src: url('./fonts/inter-variable.woff2') format('woff2-variations'), url('./fonts/inter-variable.woff2') format('woff2');
+    font-weight: 100 900; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('./fonts/ibmplexmono-regular.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('./fonts/ibmplexmono-medium.woff2') format('woff2');
+    font-weight: 500; font-style: normal; font-display: swap;
+  }
+
+  :root {
+    --paper: #F5F2EF;
+    --card: #FFFFFF;
+    --ink: #201D3D;
+    --ink-soft: #5B5770;
+    --rule: #DCD5DE;
+    --stamp: #C4302A;
+    --stamp-soft: #F5E1DE;
+    --focus: #2A2560;
+    --gold: #D9574B;
+    --green: #2E7D4E;
+    --green-soft: #E4F1E7;
+    --shadow: 0 2px 10px rgba(32,29,61,0.08);
+  }
+  [data-theme="dark"] {
+    --paper: #15122E;
+    --card: #201D3D;
+    --ink: #F5F2EF;
+    --ink-soft: #B8B4CC;
+    --rule: #3A3560;
+    --stamp: #E4635A;
+    --stamp-soft: #3A2320;
+    --focus: #9C97D9;
+    --green: #6FCB92;
+    --green-soft: #1E3327;
+    --shadow: 0 2px 10px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .hidden { display: none !important; }
+
+  /* ---------- Ecran de chargement ---------- */
+  #boot-screen {
+    position: fixed; inset: 0; z-index: 999;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
+    color: var(--paper);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px; letter-spacing: 0.04em;
+  }
+
+  /* ---------- En-tête ---------- */
+  header.app-header {
+    background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
+    color: var(--paper);
+    padding: 18px 18px 14px;
+    position: sticky; top: 0; z-index: 20;
+  }
+  .header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .header-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; margin: 0; }
+  .header-eyebrow {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--gold); margin: 0 0 2px;
+  }
+  .header-btn {
+    background: rgba(246,243,236,0.1); border: 1px solid rgba(246,243,236,0.25);
+    color: var(--paper); border-radius: 10px; padding: 8px 10px;
+    font-size: 16px; line-height: 1; cursor: pointer;
+  }
+  .header-btn:active { background: rgba(246,243,236,0.22); }
+
+  /* ---------- Nav basse ---------- */
+  nav.tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: flex; background: var(--card); border-top: 1px solid var(--rule);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -2px 10px rgba(32,29,61,0.06);
+  }
+  .tab-btn {
+    flex: 1; background: none; border: none; padding: 10px 4px 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    letter-spacing: 0.03em; cursor: pointer;
+  }
+  .tab-btn .tab-icon { font-size: 19px; }
+  .tab-btn.active { color: var(--stamp); }
+
+  main { padding: 16px 16px 90px; max-width: 640px; margin: 0 auto; }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ---------- Cartes / composants génériques ---------- */
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 14px;
+    padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px;
+  }
+  .section-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--ink-soft); margin: 20px 0 8px;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  /* Solde */
+  .balance-card { text-align: center; padding: 22px 16px; }
+  .balance-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); }
+  .balance-amount { font-family: 'Fraunces', serif; font-size: 38px; font-weight: 600; margin: 6px 0 10px; }
+  .balance-amount.negative { color: var(--stamp); }
+  .balance-sub { display: flex; justify-content: center; gap: 22px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .balance-sub .in { color: var(--green); }
+  .balance-sub .out { color: var(--stamp); }
+
+  /* Liste de transactions */
+  .tx-row {
+    display: flex; align-items: center; gap: 12px; padding: 11px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .tx-row:last-child { border-bottom: none; }
+  .tx-icon {
+    width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 17px;
+  }
+  .tx-icon.depense { background: var(--stamp-soft); color: var(--stamp); }
+  .tx-icon.recette { background: var(--green-soft); color: var(--green); }
+  .tx-main { flex: 1; min-width: 0; }
+  .tx-activite { font-size: 14px; font-weight: 600; }
+  .tx-meta { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
+  .tx-amount { font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 500; white-space: nowrap; }
+  .tx-amount.depense { color: var(--stamp); }
+  .tx-amount.recette { color: var(--green); }
+  .tx-photo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); display: inline-block; margin-left: 4px; }
+
+  .empty-state { text-align: center; padding: 30px 10px; color: var(--ink-soft); font-size: 13px; }
+
+  /* Formulaires */
+  label.field-label {
+    display: block; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft);
+    margin: 14px 0 6px;
+  }
+  label.field-label:first-child { margin-top: 0; }
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"],
+  input[type="date"], select, textarea {
+    width: 100%; padding: 11px 12px; border: 1px solid var(--rule); border-radius: 10px;
+    background: var(--paper); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 15px;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--stamp); }
+  textarea { resize: vertical; min-height: 60px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border: none; border-radius: 11px; padding: 13px 18px; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: 'Inter', sans-serif; width: 100%;
+  }
+  .btn-primary { background: var(--stamp); color: #fff; }
+  .btn-primary:active { background: #A03B2A; }
+  .btn-secondary { background: var(--card); color: var(--ink); border: 1px solid var(--rule); }
+  .btn-ghost { background: transparent; color: var(--ink-soft); border: 1px dashed var(--rule); }
+  .btn-drive { background: var(--focus); color: #fff; }
+  .btn[disabled] { opacity: 0.5; pointer-events: none; }
+
+  .type-switch { display: flex; gap: 8px; margin-bottom: 4px; }
+  .type-switch button {
+    flex: 1; padding: 12px; border-radius: 11px; border: 1px solid var(--rule);
+    background: var(--card); font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--ink-soft); cursor: pointer;
+  }
+  .type-switch button.active.depense { background: var(--stamp-soft); border-color: var(--stamp); color: var(--stamp); }
+  .type-switch button.active.recette { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+
+  .photo-zone {
+    border: 1.5px dashed var(--rule); border-radius: 12px; padding: 16px;
+    text-align: center; margin-top: 4px;
+  }
+  .photo-preview { max-width: 100%; max-height: 220px; border-radius: 8px; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto; }
+  .photo-buttons { display: flex; gap: 8px; }
+
+  /* FAB */
+  .fab {
+    position: fixed; right: 18px; bottom: 82px; z-index: 25;
+    width: 56px; height: 56px; border-radius: 50%; background: var(--stamp);
+    color: #fff; font-size: 28px; border: none; box-shadow: 0 4px 14px rgba(196,48,42,0.4);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+
+  /* Login */
+  .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .login-card { max-width: 360px; width: 100%; }
+  .login-logo { text-align: center; margin-bottom: 18px; }
+  .login-logo img { height: 54px; }
+  .login-title { font-family: 'Fraunces', serif; font-size: 22px; text-align: center; margin: 0 0 4px; }
+  .login-sub { text-align: center; color: var(--ink-soft); font-size: 13px; margin: 0 0 20px; }
+  .login-toggle { text-align: center; margin-top: 14px; font-size: 13px; }
+  .login-toggle a { color: var(--stamp); cursor: pointer; text-decoration: underline; }
+  .login-error { background: var(--stamp-soft); color: var(--stamp); border-radius: 8px; padding: 9px 11px; font-size: 12.5px; margin-top: 10px; }
+  .login-pending { background: var(--stamp-soft); color: var(--stamp); border-radius: 10px; padding: 14px; font-size: 13px; text-align: center; margin-top: 16px; }
+
+  /* Chips filtre */
+  .chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; }
+  .chip {
+    flex-shrink: 0; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--rule);
+    background: var(--card); font-size: 12.5px; color: var(--ink-soft); cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+  }
+  .chip.active { background: var(--focus); border-color: var(--focus); color: #fff; }
+
+  /* Admin listes */
+  .admin-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--rule);
+  }
+  .admin-item:last-child { border-bottom: none; }
+  .admin-item-name { font-size: 14px; font-weight: 600; }
+  .admin-item-sub { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-soft); }
+  .role-pill {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 999px; border: 1px solid var(--rule); background: none; cursor: pointer;
+  }
+  .role-pill.admin { border-color: var(--stamp); color: var(--stamp); }
+  .role-pill.saisie { border-color: var(--green); color: var(--green); }
+  .role-pill.attente { border-color: var(--gold); color: var(--gold); }
+  .role-pill.bloque { border-color: var(--ink-soft); color: var(--ink-soft); }
+
+  .subact-tag {
+    display: inline-flex; align-items: center; gap: 5px; background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 999px; padding: 5px 10px; font-size: 12px; margin: 3px 4px 0 0;
+  }
+  .subact-tag button { background: none; border: none; color: var(--ink-soft); cursor: pointer; font-size: 13px; padding: 0; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 100px; transform: translateX(-50%);
+    background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 999px;
+    font-size: 13px; z-index: 60; box-shadow: var(--shadow); opacity: 0; transition: opacity 0.2s;
+    pointer-events: none; max-width: 88%; text-align: center;
+  }
+  .toast.show { opacity: 1; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(21,18,46,0.5); z-index: 50;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .modal-sheet {
+    background: var(--card); border-radius: 18px 18px 0 0; width: 100%; max-width: 640px;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); max-height: 85vh; overflow-y: auto;
+  }
+  .modal-title { font-family: 'Fraunces', serif; font-size: 18px; margin: 0 0 12px; }
+</style>
+</head>
+<body>
+
+<div id="boot-screen">Chargement…</div>
+
+<!-- ===================== ECRAN CONNEXION ===================== -->
+<div id="view-login" class="login-wrap hidden">
+  <div class="login-card card">
+    <div class="login-logo"><img src="./logoheader.png" alt="Banda Esperanza" onerror="this.style.display='none'"></div>
+    <h1 class="login-title">Trésorerie</h1>
+    <p class="login-sub">Banda Esperanza Tyrosse</p>
+
+    <div id="login-form">
+      <label class="field-label">Email</label>
+      <input type="email" id="login-email" autocomplete="username">
+      <label class="field-label">Mot de passe</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+      <div style="margin-top:18px;">
+        <button class="btn btn-primary" id="btn-login">Se connecter</button>
+      </div>
+      <div class="login-toggle">Pas de compte ? <a id="link-to-signup">En créer un</a></div>
+    </div>
+
+    <div id="signup-form" class="hidden">
+      <label class="field-label">Email</label>
+      <input type="email" id="signup-email" autocomplete="username">
+      <label class="field-label">Mot de passe (6 caractères min.)</label>
+      <input type="password" id="signup-password" autocomplete="new-password">
+      <div style="margin-top:18px;">
+        <button class="btn btn-primary" id="btn-signup">Créer mon compte</button>
+      </div>
+      <div class="login-toggle">Déjà un compte ? <a id="link-to-login">Se connecter</a></div>
+    </div>
+
+    <div id="login-error" class="login-error hidden"></div>
+  </div>
+</div>
+
+<!-- ===================== EN ATTENTE DE VALIDATION ===================== -->
+<div id="view-pending" class="login-wrap hidden">
+  <div class="login-card card" style="text-align:center;">
+    <h1 class="login-title">Compte créé</h1>
+    <p class="login-pending">Ton compte a bien été créé mais doit être validé par un administrateur avant de pouvoir saisir des dépenses ou recettes. Reviens un peu plus tard.</p>
+    <button class="btn btn-secondary" id="btn-pending-logout" style="margin-top:14px;">Se déconnecter</button>
+  </div>
+</div>
+
+<!-- ===================== APPLICATION ===================== -->
+<div id="app-shell" class="hidden">
+  <header class="app-header">
+    <div class="header-row">
+      <div>
+        <p class="header-eyebrow" id="header-role-label">Trésorerie</p>
+        <h1 class="header-title">Banda Esperanza</h1>
+      </div>
+      <button class="header-btn" id="btn-theme-toggle" title="Thème">🌙</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ---------- Accueil / Tableau de bord ---------- -->
+    <section id="view-dashboard" class="view active">
+      <div class="card balance-card">
+        <div class="balance-label">Solde actuel</div>
+        <div class="balance-amount" id="balance-total">0,00 €</div>
+        <div class="balance-sub">
+          <span class="in" id="balance-in">+ 0,00 €</span>
+          <span class="out" id="balance-out">− 0,00 €</span>
+        </div>
+      </div>
+
+      <div class="chip-row" id="filter-chips">
+        <div class="chip active" data-filter="tout">Tout</div>
+        <div class="chip" data-filter="depense">Dépenses</div>
+        <div class="chip" data-filter="recette">Recettes</div>
+      </div>
+
+      <div class="section-title">Transactions récentes</div>
+      <div class="card" id="tx-list-card">
+        <div id="tx-list"></div>
+        <div class="empty-state hidden" id="tx-empty">Aucune transaction pour l'instant.</div>
+      </div>
+    </section>
+
+    <!-- ---------- Nouvelle transaction ---------- -->
+    <section id="view-form" class="view">
+      <div class="type-switch">
+        <button type="button" class="active depense" data-type="depense" id="switch-depense">− Dépense</button>
+        <button type="button" class="recette" data-type="recette" id="switch-recette">+ Recette</button>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <label class="field-label">Date</label>
+        <input type="date" id="form-date">
+
+        <label class="field-label">Montant (€)</label>
+        <input type="number" id="form-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+
+        <label class="field-label">Activité</label>
+        <select id="form-activite"><option value="">— Choisir —</option></select>
+
+        <label class="field-label">Sous-activité</label>
+        <select id="form-sousactivite"><option value="">— Choisir —</option></select>
+
+        <label class="field-label">Note (facultatif)</label>
+        <textarea id="form-note" placeholder="Précision libre…"></textarea>
+
+        <label class="field-label">Justificatif</label>
+        <div class="photo-zone">
+          <img id="form-photo-preview" class="photo-preview hidden">
+          <div id="form-photo-status" class="tx-meta" style="margin-bottom:8px;"></div>
+          <input type="file" accept="image/*" capture="environment" id="input-photo-camera" class="hidden">
+          <input type="file" accept="image/*" id="input-photo-gallery" class="hidden">
+          <div class="photo-buttons">
+            <button type="button" class="btn btn-secondary" id="btn-take-photo">📷 Photo</button>
+            <button type="button" class="btn btn-secondary" id="btn-pick-photo">🖼️ Galerie</button>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-tx" style="margin-top:4px;">Enregistrer</button>
+      <button class="btn btn-ghost" id="btn-cancel-tx" style="margin-top:10px;">Annuler</button>
+    </section>
+
+    <!-- ---------- Admin : Activités ---------- -->
+    <section id="view-activites" class="view">
+      <div class="type-switch">
+        <button type="button" class="active depense" data-atype="depense" id="actswitch-depense">Dépenses</button>
+        <button type="button" class="recette" data-atype="recette" id="actswitch-recette">Recettes</button>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div id="admin-activites-list"></div>
+        <div style="margin-top:10px; display:flex; gap:8px;">
+          <input type="text" id="new-activite-name" placeholder="Nouvelle activité…">
+          <button class="btn btn-secondary" style="width:auto; white-space:nowrap;" id="btn-add-activite">Ajouter</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Admin : Utilisateurs ---------- -->
+    <section id="view-users" class="view">
+      <div class="section-title">Comptes</div>
+      <div class="card"><div id="admin-users-list"></div></div>
+    </section>
+  </main>
+
+  <button class="fab hidden" id="fab-add">＋</button>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-view="dashboard"><span class="tab-icon">🏠</span>Accueil</button>
+    <button class="tab-btn" data-view="form"><span class="tab-icon">➕</span>Saisie</button>
+    <button class="tab-btn hidden" data-view="activites" id="tab-activites"><span class="tab-icon">🏷️</span>Activités</button>
+    <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">👥</span>Comptes</button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   CONFIGURATION — à compléter avant mise en ligne
+   ============================================================ */
+
+// Config du projet Firebase dédié à la trésorerie (à créer sur console.firebase.google.com)
+const firebaseConfig = {
+  apiKey: "AIzaSyBR3wxPb5IH2wQL0_ZIzYn-nA-8k6u1h6A",
+  authDomain: "tresorerie-banda-esperanza.firebaseapp.com",
+  projectId: "tresorerie-banda-esperanza",
+  storageBucket: "tresorerie-banda-esperanza.firebasestorage.app",
+  messagingSenderId: "363610776132",
+  appId: "1:363610776132:web:7fd41f20805ae9fefd5211"
+};
+
+// Client ID OAuth Google (Google Cloud Console > Identifiants > ID client OAuth > Application Web)
+const GOOGLE_CLIENT_ID = "REMPLACER.apps.googleusercontent.com";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_ROOT_FOLDER_NAME = "Trésorerie Banda Esperanza";
+
+/* ============================================================
+   INITIALISATION FIREBASE
+   ============================================================ */
+firebase.initializeApp(firebaseConfig);
+const fbAuth = firebase.auth();
+const fbDb = firebase.firestore();
+// Persistance offline : les écritures faites hors-ligne sont mises en
+// file d'attente et synchronisées automatiquement au retour du réseau.
+fbDb.enablePersistence({ synchronizeTabs: true }).catch(function(err){
+  console.warn('Persistance Firestore indisponible :', err.code);
+});
+
+/* ============================================================
+   ETAT GLOBAL
+   ============================================================ */
+const state = {
+  user: null,            // { uid, email }
+  role: null,            // 'attente' | 'saisie' | 'admin' | 'bloque'
+  activitesDepenses: [],
+  activitesRecettes: [],
+  transactions: [],
+  filtre: 'tout',
+  formType: 'depense',
+  formPhotoBlob: null,
+  formPhotoName: null,
+  driveAccessToken: null,
+  driveTokenExpiry: 0,
+  driveTokenClient: null,
+  usersList: [],
+  adminActType: 'depense'
+};
+
+let unsubTx = null, unsubUsers = null;
+
+/* ============================================================
+   UTILITAIRES
+   ============================================================ */
+function $(id) { return document.getElementById(id); }
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._h);
+  toast._h = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+}
+
+function formatMoney(n) {
+  return (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+function formatDateShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function todayIso() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+  const v = $('view-' + name);
+  if (v) v.classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.view === name);
+  });
+  if (name === 'form') resetForm();
+}
+
+/* ============================================================
+   THEME SOMBRE / CLAIR
+   ============================================================ */
+$('btn-theme-toggle').addEventListener('click', function(){
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('tresorerie_theme', 'light');
+    this.textContent = '🌙';
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('tresorerie_theme', 'dark');
+    this.textContent = '☀️';
+  }
+});
+if (localStorage.getItem('tresorerie_theme') === 'dark') $('btn-theme-toggle').textContent = '☀️';
+
+/* ============================================================
+   AUTHENTIFICATION
+   ============================================================ */
+$('link-to-signup').addEventListener('click', function(){
+  $('login-form').classList.add('hidden');
+  $('signup-form').classList.remove('hidden');
+  $('login-error').classList.add('hidden');
+});
+$('link-to-login').addEventListener('click', function(){
+  $('signup-form').classList.add('hidden');
+  $('login-form').classList.remove('hidden');
+  $('login-error').classList.add('hidden');
+});
+
+function showLoginError(msg) {
+  const e = $('login-error');
+  e.textContent = msg;
+  e.classList.remove('hidden');
+}
+
+$('btn-login').addEventListener('click', function(){
+  const email = $('login-email').value.trim();
+  const pass = $('login-password').value;
+  if (!email || !pass) { showLoginError('Email et mot de passe requis.'); return; }
+  $('login-error').classList.add('hidden');
+  fbAuth.signInWithEmailAndPassword(email, pass).catch(function(err){
+    showLoginError(traduireErreurAuth(err));
+  });
+});
+
+$('btn-signup').addEventListener('click', function(){
+  const email = $('signup-email').value.trim();
+  const pass = $('signup-password').value;
+  if (!email || pass.length < 6) { showLoginError('Email valide et mot de passe de 6 caractères minimum.'); return; }
+  $('login-error').classList.add('hidden');
+
+  // Le tout premier compte créé sur l'app devient automatiquement admin.
+  fbDb.collection('utilisateurs').limit(1).get().then(function(snap){
+    const premierCompte = snap.empty;
+    return fbAuth.createUserWithEmailAndPassword(email, pass).then(function(cred){
+      return fbDb.collection('utilisateurs').doc(cred.user.uid).set({
+        email: email,
+        role: premierCompte ? 'admin' : 'attente',
+        creeLe: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+  }).catch(function(err){
+    showLoginError(traduireErreurAuth(err));
+  });
+});
+
+$('btn-pending-logout').addEventListener('click', function(){ fbAuth.signOut(); });
+
+function traduireErreurAuth(err) {
+  const map = {
+    'auth/invalid-email': "Adresse email invalide.",
+    'auth/user-not-found': "Aucun compte avec cet email.",
+    'auth/wrong-password': "Mot de passe incorrect.",
+    'auth/invalid-credential': "Email ou mot de passe incorrect.",
+    'auth/email-already-in-use': "Un compte existe déjà avec cet email.",
+    'auth/weak-password': "Mot de passe trop faible (6 caractères min.).",
+    'auth/network-request-failed': "Pas de réseau. Réessaie une fois connecté."
+  };
+  return map[err.code] || ('Erreur : ' + err.message);
+}
+
+fbAuth.onAuthStateChanged(function(user){
+  $('boot-screen').classList.add('hidden');
+  if (unsubTx) { unsubTx(); unsubTx = null; }
+  if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+
+  if (!user) {
+    state.user = null; state.role = null;
+    $('view-login').classList.remove('hidden');
+    $('view-pending').classList.add('hidden');
+    $('app-shell').classList.add('hidden');
+    return;
+  }
+
+  state.user = { uid: user.uid, email: user.email };
+
+  fbDb.collection('utilisateurs').doc(user.uid).onSnapshot(function(doc){
+    const data = doc.data();
+    const role = data ? data.role : 'attente';
+    state.role = role;
+
+    if (role === 'attente' || role === 'bloque' || !data) {
+      $('view-login').classList.add('hidden');
+      $('app-shell').classList.add('hidden');
+      $('view-pending').classList.remove('hidden');
+      if (role === 'bloque') $('view-pending').querySelector('.login-pending').textContent =
+        "Ce compte a été bloqué par un administrateur.";
+      return;
+    }
+
+    $('view-login').classList.add('hidden');
+    $('view-pending').classList.add('hidden');
+    $('app-shell').classList.remove('hidden');
+
+    const isAdmin = role === 'admin';
+    $('tab-activites').classList.toggle('hidden', !isAdmin);
+    $('tab-users').classList.toggle('hidden', !isAdmin);
+    $('header-role-label').textContent = 'Trésorerie · ' + (isAdmin ? 'Administrateur' : 'Saisie') + ' · ' + user.email;
+
+    chargerActivites().then(function(){
+      demarrerEcouteTransactions();
+      remplirSelectsActivite();
+      if (isAdmin) {
+        demarrerEcouteUtilisateurs();
+        renderAdminActivites();
+      }
+    });
+  });
+});
+
+/* ============================================================
+   ACTIVITES (config) — chargées une fois, avec valeurs d'exemple
+   à ajuster ensuite depuis l'onglet Activités (admin)
+   ============================================================ */
+const ACTIVITES_EXEMPLE_DEPENSES = [
+  { nom: 'Instruments', sousActivites: ['Achat', 'Réparation', 'Entretien'] },
+  { nom: 'Concerts & prestations', sousActivites: ['Déplacement', 'Restauration', 'Location matériel'] },
+  { nom: 'Partitions', sousActivites: ['Achat', 'Reliure / impression'] },
+  { nom: 'Répétitions', sousActivites: ['Location salle', 'Petit matériel'] },
+  { nom: 'Administratif', sousActivites: ['Assurance', 'Cotisations fédération', 'Frais bancaires'] },
+  { nom: 'Communication', sousActivites: ['Impression flyers', 'Site internet'] }
+];
+const ACTIVITES_EXEMPLE_RECETTES = [
+  { nom: 'Concerts & prestations', sousActivites: ['Cachet', 'Billetterie', 'Buvette'] },
+  { nom: 'Subventions', sousActivites: ['Mairie', 'Département', 'Région'] },
+  { nom: 'Cotisations', sousActivites: ['Adhésions membres'] },
+  { nom: 'Dons & sponsoring', sousActivites: ['Dons particuliers', 'Sponsoring entreprises'] },
+  { nom: 'Événements', sousActivites: ['Merchandising', 'Tombola'] }
+];
+
+function chargerActivites() {
+  const refD = fbDb.collection('config').doc('activitesDepenses');
+  const refR = fbDb.collection('config').doc('activitesRecettes');
+  return Promise.all([refD.get(), refR.get()]).then(function(results){
+    const docD = results[0], docR = results[1];
+    const jobs = [];
+    if (docD.exists) {
+      state.activitesDepenses = docD.data().liste || [];
+    } else {
+      state.activitesDepenses = ACTIVITES_EXEMPLE_DEPENSES;
+      jobs.push(refD.set({ liste: ACTIVITES_EXEMPLE_DEPENSES }));
+    }
+    if (docR.exists) {
+      state.activitesRecettes = docR.data().liste || [];
+    } else {
+      state.activitesRecettes = ACTIVITES_EXEMPLE_RECETTES;
+      jobs.push(refR.set({ liste: ACTIVITES_EXEMPLE_RECETTES }));
+    }
+    return Promise.all(jobs);
+  });
+}
+
+function sauvegarderActivites(type) {
+  const liste = type === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const docId = type === 'depense' ? 'activitesDepenses' : 'activitesRecettes';
+  return fbDb.collection('config').doc(docId).set({ liste: liste });
+}
+
+/* ============================================================
+   NAVIGATION ONGLETS
+   ============================================================ */
+document.querySelectorAll('.tab-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){ showView(btn.dataset.view); });
+});
+$('fab-add').addEventListener('click', function(){ showView('form'); });
+$('btn-cancel-tx').addEventListener('click', function(){ showView('dashboard'); });
+
+/* ============================================================
+   TABLEAU DE BORD
+   ============================================================ */
+function demarrerEcouteTransactions() {
+  if (unsubTx) unsubTx();
+  unsubTx = fbDb.collection('transactions').orderBy('date', 'desc').onSnapshot(function(snap){
+    state.transactions = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    renderDashboard();
+  }, function(err){
+    console.error('Ecoute transactions :', err);
+  });
+}
+
+document.querySelectorAll('#filter-chips .chip').forEach(function(chip){
+  chip.addEventListener('click', function(){
+    document.querySelectorAll('#filter-chips .chip').forEach(function(c){ c.classList.remove('active'); });
+    chip.classList.add('active');
+    state.filtre = chip.dataset.filter;
+    renderDashboard();
+  });
+});
+
+function renderDashboard() {
+  let totalIn = 0, totalOut = 0;
+  state.transactions.forEach(function(tx){
+    if (tx.type === 'recette') totalIn += Number(tx.montant) || 0;
+    else totalOut += Number(tx.montant) || 0;
+  });
+  const solde = totalIn - totalOut;
+  const balEl = $('balance-total');
+  balEl.textContent = formatMoney(solde);
+  balEl.classList.toggle('negative', solde < 0);
+  $('balance-in').textContent = '+ ' + formatMoney(totalIn);
+  $('balance-out').textContent = '− ' + formatMoney(totalOut);
+
+  const liste = state.filtre === 'tout' ? state.transactions : state.transactions.filter(function(t){ return t.type === state.filtre; });
+  const listEl = $('tx-list');
+  listEl.innerHTML = '';
+  $('tx-empty').classList.toggle('hidden', liste.length > 0);
+
+  liste.slice(0, 60).forEach(function(tx){
+    const row = document.createElement('div');
+    row.className = 'tx-row';
+    row.innerHTML =
+      '<div class="tx-icon ' + tx.type + '">' + (tx.type === 'recette' ? '↑' : '↓') + '</div>' +
+      '<div class="tx-main">' +
+        '<div class="tx-activite">' + escHtml(tx.activite || '') + (tx.sousActivite ? ' · ' + escHtml(tx.sousActivite) : '') + '</div>' +
+        '<div class="tx-meta">' + formatDateShort(tx.date) + (tx.driveFileUrl ? '<span class="tx-photo-dot"></span>' : '') + '</div>' +
+      '</div>' +
+      '<div class="tx-amount ' + tx.type + '">' + (tx.type === 'recette' ? '+' : '−') + ' ' + formatMoney(tx.montant) + '</div>';
+    if (tx.driveFileUrl) {
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', function(){ window.open(tx.driveFileUrl, '_blank'); });
+    }
+    listEl.appendChild(row);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+
+/* ============================================================
+   FORMULAIRE DE SAISIE
+   ============================================================ */
+$('switch-depense').addEventListener('click', function(){ setFormType('depense'); });
+$('switch-recette').addEventListener('click', function(){ setFormType('recette'); });
+
+function setFormType(type) {
+  state.formType = type;
+  $('switch-depense').classList.toggle('active', type === 'depense');
+  $('switch-recette').classList.toggle('active', type === 'recette');
+  remplirSelectsActivite();
+}
+
+function remplirSelectsActivite() {
+  const liste = state.formType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const sel = $('form-activite');
+  sel.innerHTML = '<option value="">— Choisir —</option>';
+  liste.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a.nom; opt.textContent = a.nom;
+    sel.appendChild(opt);
+  });
+  remplirSousActivites();
+}
+
+$('form-activite').addEventListener('change', remplirSousActivites);
+
+function remplirSousActivites() {
+  const liste = state.formType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const activiteChoisie = $('form-activite').value;
+  const act = liste.find(function(a){ return a.nom === activiteChoisie; });
+  const sel = $('form-sousactivite');
+  sel.innerHTML = '<option value="">— Choisir —</option>';
+  (act ? act.sousActivites : []).forEach(function(s){
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  });
+}
+
+function resetForm() {
+  $('form-date').value = todayIso();
+  $('form-montant').value = '';
+  $('form-note').value = '';
+  state.formPhotoBlob = null;
+  state.formPhotoName = null;
+  $('form-photo-preview').classList.add('hidden');
+  $('form-photo-status').textContent = '';
+  setFormType(state.formType);
+}
+
+$('btn-take-photo').addEventListener('click', function(){ $('input-photo-camera').click(); });
+$('btn-pick-photo').addEventListener('click', function(){ $('input-photo-gallery').click(); });
+$('input-photo-camera').addEventListener('change', handlePhotoInput);
+$('input-photo-gallery').addEventListener('change', handlePhotoInput);
+
+function handlePhotoInput(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  state.formPhotoBlob = file;
+  state.formPhotoName = file.name || ('facture_' + Date.now() + '.jpg');
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    $('form-photo-preview').src = ev.target.result;
+    $('form-photo-preview').classList.remove('hidden');
+    $('form-photo-status').textContent = 'Photo prête (' + Math.round(file.size/1024) + ' Ko)';
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+$('btn-save-tx').addEventListener('click', enregistrerTransaction);
+
+function enregistrerTransaction() {
+  const date = $('form-date').value || todayIso();
+  const montant = parseFloat($('form-montant').value);
+  const activite = $('form-activite').value;
+  const sousActivite = $('form-sousactivite').value;
+  const note = $('form-note').value.trim();
+
+  if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
+  if (!activite) { toast('Choisis une activité.'); return; }
+  if (!sousActivite) { toast('Choisis une sous-activité.'); return; }
+
+  const btn = $('btn-save-tx');
+  btn.disabled = true;
+  btn.textContent = 'Enregistrement…';
+
+  const txData = {
+    type: state.formType,
+    date: date,
+    montant: montant,
+    activite: activite,
+    sousActivite: sousActivite,
+    note: note,
+    creeParUid: state.user.uid,
+    creeParEmail: state.user.email,
+    creeLe: firebase.firestore.FieldValue.serverTimestamp(),
+    driveFileId: null, driveFileUrl: null, driveFileName: null
+  };
+
+  const photoBlob = state.formPhotoBlob;
+  const photoName = state.formPhotoName;
+
+  // On déclenche la connexion Drive tout de suite (geste utilisateur encore
+  // valide à ce stade) si une photo est présente et qu'aucun token valide n'existe.
+  const drivePromise = photoBlob ? ensureDriveConnecte() : Promise.resolve(false);
+
+  drivePromise.then(function(connecte){
+    if (photoBlob && connecte) {
+      return uploaderFactureDrive(photoBlob, photoName, state.formType, activite, sousActivite, date, montant)
+        .then(function(res){
+          txData.driveFileId = res.id;
+          txData.driveFileUrl = res.webViewLink;
+          txData.driveFileName = res.name;
+        })
+        .catch(function(err){
+          console.error('Upload Drive échoué :', err);
+          toast("Transaction enregistrée, mais l'envoi de la photo a échoué (réessaie plus tard).");
+          enfilerPhotoEnAttente(photoBlob, photoName, txData);
+        });
+    } else if (photoBlob && !connecte) {
+      enfilerPhotoEnAttente(photoBlob, photoName, txData);
+      toast('Transaction enregistrée. Photo à synchroniser (Drive non connecté ou hors-ligne).');
+    }
+  }).catch(function(err){
+    console.warn('Drive indisponible :', err);
+    if (photoBlob) enfilerPhotoEnAttente(photoBlob, photoName, txData);
+  }).then(function(){
+    return fbDb.collection('transactions').add(txData);
+  }).then(function(){
+    toast('Transaction enregistrée.');
+    showView('dashboard');
+  }).catch(function(err){
+    console.error(err);
+    toast('Erreur : ' + err.message);
+  }).then(function(){
+    btn.disabled = false;
+    btn.textContent = 'Enregistrer';
+  });
+}
+
+/* ============================================================
+   GOOGLE DRIVE — connexion + upload des justificatifs
+   ============================================================ */
+function ensureDriveConnecte() {
+  const now = Date.now();
+  if (state.driveAccessToken && now < state.driveTokenExpiry - 30000) {
+    return Promise.resolve(true);
+  }
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+    return Promise.resolve(false);
+  }
+  return new Promise(function(resolve){
+    try {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: function(resp){
+          if (resp && resp.access_token) {
+            state.driveAccessToken = resp.access_token;
+            state.driveTokenExpiry = Date.now() + ((resp.expires_in || 3300) * 1000);
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        },
+        error_callback: function(){ resolve(false); }
+      });
+      client.requestAccessToken({ prompt: '' });
+    } catch (e) {
+      console.error('Init Drive OAuth :', e);
+      resolve(false);
+    }
+  });
+}
+
+function driveFetch(url, options) {
+  options = options || {};
+  options.headers = Object.assign({}, options.headers, { 'Authorization': 'Bearer ' + state.driveAccessToken });
+  return fetch(url, options).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error('Drive API ' + r.status + ' : ' + t); });
+    return r.json();
+  });
+}
+
+function trouverOuCreerDossier(nom, parentId) {
+  const q = encodeURIComponent("name='" + nom.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and '" + parentId + "' in parents and trashed=false");
+  return driveFetch('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id,name)&spaces=drive').then(function(data){
+    if (data.files && data.files.length > 0) return data.files[0].id;
+    return driveFetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nom, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] })
+    }).then(function(d){ return d.id; });
+  });
+}
+
+function obtenirDossierActivite(type, activite) {
+  return trouverOuCreerDossier(DRIVE_ROOT_FOLDER_NAME, 'root')
+    .then(function(rootId){ return trouverOuCreerDossier(type === 'depense' ? 'Dépenses' : 'Recettes', rootId); })
+    .then(function(typeId){ return trouverOuCreerDossier(activite, typeId); });
+}
+
+function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, montant) {
+  return obtenirDossierActivite(type, activite).then(function(folderId){
+    const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + '_' + montant.toFixed(2) + '€_' + nomFichier;
+    const metadata = { name: nomFinal, parents: [folderId] };
+    const boundary = '-------tresorerie' + Date.now();
+    return blob.arrayBuffer().then(function(buf){
+      const encoder = new TextEncoder();
+      const head = encoder.encode(
+        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
+        '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.type || 'image/jpeg') + '\r\n\r\n'
+      );
+      const tail = encoder.encode('\r\n--' + boundary + '--');
+      const body = new Blob([head, buf, tail]);
+      return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + state.driveAccessToken,
+          'Content-Type': 'multipart/related; boundary=' + boundary
+        },
+        body: body
+      });
+    }).then(function(r){
+      if (!r.ok) return r.text().then(function(t){ throw new Error('Upload Drive ' + r.status + ' : ' + t); });
+      return r.json();
+    }).then(function(fileInfo){
+      // Rend le fichier consultable via son lien, sans que le lecteur ait besoin
+      // d'accès au Drive de la personne qui a fait l'upload.
+      return driveFetch('https://www.googleapis.com/drive/v3/files/' + fileInfo.id + '/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'reader', type: 'anyone' })
+      }).catch(function(e){ console.warn('Permission publique échouée :', e); }).then(function(){ return fileInfo; });
+    });
+  });
+}
+
+/* ---------- File d'attente locale pour photos non envoyées ---------- */
+function ouvrirDbLocale() {
+  return new Promise(function(resolve, reject){
+    const req = indexedDB.open('tresorerie_local', 1);
+    req.onupgradeneeded = function(){ req.result.createObjectStore('photos_en_attente', { keyPath: 'id', autoIncrement: true }); };
+    req.onsuccess = function(){ resolve(req.result); };
+    req.onerror = function(){ reject(req.error); };
+  });
+}
+
+function enfilerPhotoEnAttente(blob, nomFichier, txData) {
+  ouvrirDbLocale().then(function(db){
+    const tx = db.transaction('photos_en_attente', 'readwrite');
+    tx.objectStore('photos_en_attente').add({
+      blob: blob, nomFichier: nomFichier,
+      type: txData.type, activite: txData.activite, sousActivite: txData.sousActivite,
+      date: txData.date, montant: txData.montant
+    });
+  }).catch(function(e){ console.error('Enfilage photo échoué :', e); });
+}
+
+function synchroniserPhotosEnAttente() {
+  ouvrirDbLocale().then(function(db){
+    const txStore = db.transaction('photos_en_attente', 'readonly').objectStore('photos_en_attente');
+    txStore.getAll().onsuccess = function(ev){
+      const items = ev.target.result || [];
+      if (items.length === 0) { toast('Rien à synchroniser.'); return; }
+      ensureDriveConnecte().then(function(ok){
+        if (!ok) { toast('Connexion Drive nécessaire pour synchroniser.'); return; }
+        let done = 0;
+        items.forEach(function(item){
+          uploaderFactureDrive(item.blob, item.nomFichier, item.type, item.activite, item.sousActivite, item.date, item.montant)
+            .then(function(){
+              const delTx = db.transaction('photos_en_attente', 'readwrite');
+              delTx.objectStore('photos_en_attente').delete(item.id);
+              done++;
+              toast('Justificatif ' + done + '/' + items.length + ' synchronisé.');
+            })
+            .catch(function(e){ console.error('Sync photo échouée :', e); });
+        });
+      });
+    };
+  });
+}
+
+/* ============================================================
+   ADMIN — GESTION DES ACTIVITES
+   ============================================================ */
+$('actswitch-depense').addEventListener('click', function(){ setAdminActType('depense'); });
+$('actswitch-recette').addEventListener('click', function(){ setAdminActType('recette'); });
+
+function setAdminActType(type) {
+  state.adminActType = type;
+  $('actswitch-depense').classList.toggle('active', type === 'depense');
+  $('actswitch-recette').classList.toggle('active', type === 'recette');
+  renderAdminActivites();
+}
+
+function renderAdminActivites() {
+  const liste = state.adminActType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const el = $('admin-activites-list');
+  el.innerHTML = '';
+  liste.forEach(function(act, idx){
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-item';
+    wrap.style.flexDirection = 'column';
+    wrap.style.alignItems = 'stretch';
+
+    const top = document.createElement('div');
+    top.style.display = 'flex'; top.style.justifyContent = 'space-between'; top.style.alignItems = 'center';
+    top.innerHTML = '<div class="admin-item-name">' + escHtml(act.nom) + '</div>';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'role-pill'; delBtn.textContent = 'Supprimer';
+    delBtn.addEventListener('click', function(){
+      if (!confirm('Supprimer l\'activité "' + act.nom + '" ?')) return;
+      liste.splice(idx, 1);
+      sauvegarderActivites(state.adminActType).then(renderAdminActivites);
+    });
+    top.appendChild(delBtn);
+    wrap.appendChild(top);
+
+    const tagsWrap = document.createElement('div');
+    tagsWrap.style.marginTop = '6px';
+    (act.sousActivites || []).forEach(function(s, sIdx){
+      const tag = document.createElement('span');
+      tag.className = 'subact-tag';
+      tag.innerHTML = escHtml(s) + ' <button>✕</button>';
+      tag.querySelector('button').addEventListener('click', function(){
+        act.sousActivites.splice(sIdx, 1);
+        sauvegarderActivites(state.adminActType).then(renderAdminActivites);
+      });
+      tagsWrap.appendChild(tag);
+    });
+    wrap.appendChild(tagsWrap);
+
+    const addRow = document.createElement('div');
+    addRow.style.cssText = 'display:flex; gap:6px; margin-top:8px;';
+    const input = document.createElement('input');
+    input.type = 'text'; input.placeholder = 'Nouvelle sous-activité…';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-secondary'; addBtn.style.width = 'auto'; addBtn.textContent = '+';
+    addBtn.addEventListener('click', function(){
+      const val = input.value.trim();
+      if (!val) return;
+      act.sousActivites = act.sousActivites || [];
+      act.sousActivites.push(val);
+      sauvegarderActivites(state.adminActType).then(renderAdminActivites);
+    });
+    addRow.appendChild(input); addRow.appendChild(addBtn);
+    wrap.appendChild(addRow);
+
+    el.appendChild(wrap);
+  });
+}
+
+$('btn-add-activite').addEventListener('click', function(){
+  const nom = $('new-activite-name').value.trim();
+  if (!nom) return;
+  const liste = state.adminActType === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  liste.push({ nom: nom, sousActivites: [] });
+  sauvegarderActivites(state.adminActType).then(function(){
+    $('new-activite-name').value = '';
+    renderAdminActivites();
+    remplirSelectsActivite();
+  });
+});
+
+/* ============================================================
+   ADMIN — GESTION DES UTILISATEURS
+   ============================================================ */
+function demarrerEcouteUtilisateurs() {
+  if (unsubUsers) unsubUsers();
+  unsubUsers = fbDb.collection('utilisateurs').onSnapshot(function(snap){
+    state.usersList = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    renderAdminUsers();
+  });
+}
+
+const ROLES_CYCLE = ['attente', 'saisie', 'admin', 'bloque'];
+
+function renderAdminUsers() {
+  const el = $('admin-users-list');
+  el.innerHTML = '';
+  state.usersList.forEach(function(u){
+    const row = document.createElement('div');
+    row.className = 'admin-item';
+    row.innerHTML =
+      '<div><div class="admin-item-name">' + escHtml(u.email) + '</div>' +
+      '<div class="admin-item-sub">' + u.id.slice(0,8) + '…</div></div>';
+    const pill = document.createElement('button');
+    pill.className = 'role-pill ' + u.role;
+    pill.textContent = u.role;
+    pill.title = 'Toucher pour changer le rôle';
+    pill.addEventListener('click', function(){
+      if (u.id === state.user.uid) { toast('Tu ne peux pas changer ton propre rôle.'); return; }
+      const next = ROLES_CYCLE[(ROLES_CYCLE.indexOf(u.role) + 1) % ROLES_CYCLE.length];
+      fbDb.collection('utilisateurs').doc(u.id).update({ role: next });
+    });
+    row.appendChild(pill);
+    el.appendChild(row);
+  });
+}
+
+/* ============================================================
+   ENREGISTREMENT DU SERVICE WORKER
+   ============================================================ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(e){ console.warn('SW non enregistré :', e); });
+  });
+}
+
+// Réessaie automatiquement la synchro des photos en attente au retour du réseau.
+window.addEventListener('online', function(){ synchroniserPhotosEnAttente(); });
+
+resetForm();
+</script>
+</body>
+</html>

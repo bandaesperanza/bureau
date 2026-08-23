@@ -256,6 +256,8 @@
     padding: 6px 0 6px 12px; border-top: 1px solid var(--rule); margin-top: 8px;
   }
   .bilan-ligne:first-of-type { margin-top: 10px; }
+  .bilan-comparaison { color: var(--ink-soft); font-size: 11px; font-weight: 400; margin-left: 6px; }
+  .bilan-bloc-header .bilan-comparaison { font-size: 11px; }
 
   @media (min-width: 700px) {
     .bilan-annuel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
@@ -671,6 +673,11 @@
         <div class="card">
           <label class="field-label">Année</label>
           <select id="bilan-annuel-annee"></select>
+          <label class="field-label">Comparer avec</label>
+          <select id="bilan-annuel-comparaison">
+            <option value="auto">Année précédente (N-1)</option>
+            <option value="aucune">Aucune</option>
+          </select>
           <div style="display:flex; gap:8px; margin-top:12px;">
             <button class="btn btn-secondary btn-fichier" id="btn-bilan-export-excel" style="width:auto; flex:1;"><span class="badge-fichier excel">X</span> Excel</button>
             <button class="btn btn-secondary btn-fichier" id="btn-bilan-export-pdf" style="width:auto; flex:1;"><span class="badge-fichier pdf">PDF</span> PDF</button>
@@ -1417,8 +1424,21 @@ function remplirBilanAnnuelAnnees() {
     sel.appendChild(opt);
   });
   sel.value = anneesTriees.indexOf(valeurActuelle) !== -1 ? valeurActuelle : anneeCourante;
+
+  // Sélecteur d'année de comparaison : "Auto (N-1)", "Aucune", puis les
+  // autres années disponibles (hors année principale sélectionnée).
+  const selComp = $('bilan-annuel-comparaison');
+  const valeurCompActuelle = selComp.value || 'auto';
+  selComp.innerHTML = '<option value="auto">Année précédente (N-1)</option><option value="aucune">Aucune</option>';
+  anneesTriees.filter(function(a){ return a !== sel.value; }).forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    selComp.appendChild(opt);
+  });
+  selComp.value = ['auto', 'aucune'].concat(anneesTriees).indexOf(valeurCompActuelle) !== -1 ? valeurCompActuelle : 'auto';
 }
 $('bilan-annuel-annee').addEventListener('change', renderBilanAnnuelEcran);
+$('bilan-annuel-comparaison').addEventListener('change', renderBilanAnnuelEcran);
 
 // Regroupe les transactions d'une année par activité fixe puis sous-activité,
 // avec sous-totaux — même logique que l'onglet "Bilan Annuel" du fichier Excel.
@@ -1447,6 +1467,26 @@ function calculerBilanAnnuel(annee) {
   return { annee: annee, depenses: depenses, recettes: recettes, totalDepenses: totalDepenses, totalRecettes: totalRecettes, solde: totalRecettes - totalDepenses };
 }
 
+// Détermine l'année de comparaison effective à partir du sélecteur (null si "Aucune").
+function resoudreAnneeComparaison(anneePrincipale) {
+  const choix = $('bilan-annuel-comparaison').value;
+  if (choix === 'aucune') return null;
+  if (choix === 'auto') return String(parseInt(anneePrincipale, 10) - 1);
+  return choix;
+}
+
+// Indexe les blocs d'une année par activité puis sous-activité, pour un
+// accès rapide lors de la fusion avec l'année de comparaison.
+function indexerBilan(blocs) {
+  const parActivite = {};
+  blocs.forEach(function(b){
+    const parSous = {};
+    b.sousActivites.forEach(function(s){ parSous[s.nom] = s.total; });
+    parActivite[b.activite] = { total: b.total, parSous: parSous };
+  });
+  return parActivite;
+}
+
 // Postes alignés 1:1 (Animation, Sainte Cécile, Diverses, Bodega existent
 // des deux côtés). Local/Fonctionnement/Instruments (dépense) n'ont pas
 // d'équivalent direct : regroupés en un seul pavé, face aux deux pavés
@@ -1460,41 +1500,52 @@ const PAIRES_BILAN = [
   ['Bodega', 'Bodega']
 ];
 
-function construireLigneBloc(bloc) {
-  let html = '<div class="bilan-bloc-header"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
+function construireLigneBloc(bloc, indexComp, anneeComp) {
+  const compBloc = indexComp ? indexComp[bloc.activite] : null;
+  const compTotal = compBloc ? compBloc.total : null;
+  const compHtml = anneeComp && compTotal !== null
+    ? '<span class="bilan-comparaison">' + formatMoney(compTotal) + ' (' + escHtml(anneeComp) + ')</span>' : '';
+  let html = '<div class="bilan-bloc-header"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + compHtml + '</span></div>';
   if (bloc.sousActivites.length === 0) {
     html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';
   } else {
     bloc.sousActivites.forEach(function(s){
-      html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + '</span></div>';
+      const compVal = (anneeComp && compBloc && compBloc.parSous[s.nom] !== undefined) ? compBloc.parSous[s.nom] : null;
+      const compLigne = compVal !== null ? '<span class="bilan-comparaison">' + formatMoney(compVal) + ' (' + escHtml(anneeComp) + ')</span>' : '';
+      html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + compLigne + '</span></div>';
     });
   }
   return html;
 }
 
-function construireCarteBilan(bloc, type) {
+function construireCarteBilan(bloc, type, indexComp, anneeComp) {
   const carte = document.createElement('div');
   carte.className = 'card bilan-bloc ' + type;
-  carte.innerHTML = construireLigneBloc(bloc).replace('bilan-bloc-header', 'bilan-bloc-header ' + type);
+  carte.innerHTML = construireLigneBloc(bloc, indexComp, anneeComp).replace('bilan-bloc-header', 'bilan-bloc-header ' + type);
   return carte;
 }
 
 // Plusieurs pavés distincts empilés dans un même conteneur (une "colonne"
 // dans la cellule de grille) — pour Contrats + Subventions.
-function construireColonneBilan(blocs, type) {
+function construireColonneBilan(blocs, type, indexComp, anneeComp) {
   const wrap = document.createElement('div');
-  blocs.forEach(function(bloc){ wrap.appendChild(construireCarteBilan(bloc, type)); });
+  blocs.forEach(function(bloc){ wrap.appendChild(construireCarteBilan(bloc, type, indexComp, anneeComp)); });
   return wrap;
 }
 
 function renderBilanAnnuelEcran() {
   const annee = $('bilan-annuel-annee').value || String(new Date().getFullYear());
   const data = calculerBilanAnnuel(annee);
+  const anneeComp = resoudreAnneeComparaison(annee);
+  const dataComp = anneeComp ? calculerBilanAnnuel(anneeComp) : null;
+  const indexDepComp = dataComp ? indexerBilan(dataComp.depenses) : null;
+  const indexRecComp = dataComp ? indexerBilan(dataComp.recettes) : null;
+
   const soldeEl = $('bilan-annuel-solde');
   soldeEl.textContent = formatMoney(data.solde);
   soldeEl.classList.toggle('negative', data.solde < 0);
-  $('bilan-annuel-total-recettes').textContent = '+ ' + formatMoney(data.totalRecettes);
-  $('bilan-annuel-total-depenses').textContent = '− ' + formatMoney(data.totalDepenses);
+  $('bilan-annuel-total-recettes').textContent = '+ ' + formatMoney(data.totalRecettes) + (dataComp ? ' (' + formatMoney(dataComp.totalRecettes) + ' en ' + anneeComp + ')' : '');
+  $('bilan-annuel-total-depenses').textContent = '− ' + formatMoney(data.totalDepenses) + (dataComp ? ' (' + formatMoney(dataComp.totalDepenses) + ' en ' + anneeComp + ')' : '');
 
   const depensesParNom = {};
   data.depenses.forEach(function(b){ depensesParNom[b.activite] = b; });
@@ -1506,13 +1557,13 @@ function renderBilanAnnuelEcran() {
 
   const blocsGroupeDep = GROUPE_DEPENSE_SANS_EQUIVALENT.map(function(n){ return depensesParNom[n]; }).filter(Boolean);
   const blocsGroupeRec = GROUPE_RECETTE_SANS_EQUIVALENT.map(function(n){ return recettesParNom[n]; }).filter(Boolean);
-  grille.appendChild(construireColonneBilan(blocsGroupeDep, 'depense'));
-  grille.appendChild(construireColonneBilan(blocsGroupeRec, 'recette'));
+  grille.appendChild(construireColonneBilan(blocsGroupeDep, 'depense', indexDepComp, anneeComp));
+  grille.appendChild(construireColonneBilan(blocsGroupeRec, 'recette', indexRecComp, anneeComp));
 
   PAIRES_BILAN.forEach(function(paire){
     const nomDep = paire[0], nomRec = paire[1];
-    grille.appendChild(nomDep && depensesParNom[nomDep] ? construireCarteBilan(depensesParNom[nomDep], 'depense') : document.createElement('div'));
-    grille.appendChild(nomRec && recettesParNom[nomRec] ? construireCarteBilan(recettesParNom[nomRec], 'recette') : document.createElement('div'));
+    grille.appendChild(nomDep && depensesParNom[nomDep] ? construireCarteBilan(depensesParNom[nomDep], 'depense', indexDepComp, anneeComp) : document.createElement('div'));
+    grille.appendChild(nomRec && recettesParNom[nomRec] ? construireCarteBilan(recettesParNom[nomRec], 'recette', indexRecComp, anneeComp) : document.createElement('div'));
   });
 }
 

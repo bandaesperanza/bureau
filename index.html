@@ -547,7 +547,7 @@
       <div class="type-switch" style="margin-bottom:14px;">
         <button type="button" class="active" id="admin-toggle-utilisateurs">👥 Utilisateurs</button>
         <button type="button" id="admin-toggle-activites">🏷️ Activités</button>
-        <button type="button" id="admin-toggle-grandlivre">📒 Grand livre</button>
+        <button type="button" id="admin-toggle-grandlivre">📒 Livre de compte</button>
       </div>
 
       <div id="admin-page-utilisateurs">
@@ -580,7 +580,7 @@
           <button class="btn btn-drive" id="btn-lancer-annee">📁 Lancer l'année comptable</button>
         </div>
 
-        <div class="section-title">Grand livre (export / import Drive)</div>
+        <div class="section-title">Livre de compte (export / import Drive)</div>
         <div class="card">
           <div class="tx-meta" style="margin-bottom:10px;">
             Exporte toutes les transactions d'une année vers un fichier Excel
@@ -2600,7 +2600,7 @@ function renderAdminActivites() {
 function genererExcelGrandLivre(annee, lignesTx) {
   const classeur = new ExcelJS.Workbook();
   classeur.creator = 'Trésorerie Banda Esperanza';
-  const feuille = classeur.addWorksheet('Grand livre ' + annee, { views: [{ state: 'frozen', ySplit: 1 }] });
+  const feuille = classeur.addWorksheet('Livre de compte ' + annee, { views: [{ state: 'frozen', ySplit: 1 }] });
 
   feuille.columns = [
     { header: 'Numéro', key: 'numero', width: 13 },
@@ -2680,11 +2680,11 @@ $('btn-export-grandlivre').addEventListener('click', function(){
   }).then(function(blob){
     statusEl.textContent = 'Envoi vers Drive…';
     return obtenirDossierComptabiliteAnnee(annee).then(function(folderId){
-      return uploaderFichierDrive(blob, 'GrandLivre_' + annee + '.xlsx', folderId, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      return uploaderFichierDrive(blob, 'LivreDeCompte_' + annee + '.xlsx', folderId, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     });
   }).then(function(){
     statusEl.textContent = lignesTx.length + ' transactions exportées vers Drive.';
-    toast('Grand livre ' + annee + ' exporté.');
+    toast('Livre de compte ' + annee + ' exporté.');
   }).catch(function(err){
     statusEl.textContent = 'Erreur : ' + err.message;
     toast('Erreur export : ' + err.message);
@@ -2800,7 +2800,7 @@ function importerGrandLivre(file) {
 }
 
 /* ============================================================
-   ADMIN — BASCULE ENTRE SOUS-PAGES (Utilisateurs / Activités / Grand livre)
+   ADMIN — BASCULE ENTRE SOUS-PAGES (Utilisateurs / Activités / Livre de compte)
    ============================================================ */
 function afficherPageAdmin(page) {
   state.adminPage = page;

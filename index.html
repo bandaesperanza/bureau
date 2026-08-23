@@ -1468,16 +1468,6 @@ function construireCarteBilan(bloc, type) {
   return carte;
 }
 
-// Un seul pavé (une seule carte) regroupant plusieurs activités à la suite,
-// séparées par un simple filet — pour Local/Fonctionnement/Instruments.
-function construireCarteBilanGroupee(blocs, type) {
-  const carte = document.createElement('div');
-  carte.className = 'card bilan-bloc ' + type;
-  carte.innerHTML = blocs.map(function(bloc){ return construireLigneBloc(bloc).replace('bilan-bloc-header', 'bilan-bloc-header ' + type); })
-    .join('<div style="border-top:1px solid var(--rule); margin:12px 0 2px;"></div>');
-  return carte;
-}
-
 // Plusieurs pavés distincts empilés dans un même conteneur (une "colonne"
 // dans la cellule de grille) — pour Contrats + Subventions.
 function construireColonneBilan(blocs, type) {
@@ -1505,7 +1495,7 @@ function renderBilanAnnuelEcran() {
 
   const blocsGroupeDep = GROUPE_DEPENSE_SANS_EQUIVALENT.map(function(n){ return depensesParNom[n]; }).filter(Boolean);
   const blocsGroupeRec = GROUPE_RECETTE_SANS_EQUIVALENT.map(function(n){ return recettesParNom[n]; }).filter(Boolean);
-  grille.appendChild(construireCarteBilanGroupee(blocsGroupeDep, 'depense'));
+  grille.appendChild(construireColonneBilan(blocsGroupeDep, 'depense'));
   grille.appendChild(construireColonneBilan(blocsGroupeRec, 'recette'));
 
   PAIRES_BILAN.forEach(function(paire){

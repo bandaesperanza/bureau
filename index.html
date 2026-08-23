@@ -678,16 +678,11 @@
           </div>
         </div>
 
-        <div class="bilan-annuel-grid">
-          <div>
-            <div class="section-title">Dépenses</div>
-            <div id="bilan-annuel-depenses"></div>
-          </div>
-          <div>
-            <div class="section-title">Recettes</div>
-            <div id="bilan-annuel-recettes"></div>
-          </div>
+        <div class="bilan-annuel-grid" style="margin-bottom:2px;">
+          <div class="section-title">Dépenses</div>
+          <div class="section-title">Recettes</div>
         </div>
+        <div class="bilan-annuel-grid" id="bilan-annuel-grille"></div>
       </div>
     </section>
   </main>
@@ -1441,23 +1436,35 @@ function calculerBilanAnnuel(annee) {
   return { annee: annee, depenses: depenses, recettes: recettes, totalDepenses: totalDepenses, totalRecettes: totalRecettes, solde: totalRecettes - totalDepenses };
 }
 
-function renderBlocsBilan(containerId, blocs, type) {
-  const el = $(containerId);
-  el.innerHTML = '';
-  blocs.forEach(function(bloc){
-    const carte = document.createElement('div');
-    carte.className = 'card bilan-bloc ' + type;
-    let html = '<div class="bilan-bloc-header ' + type + '"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
-    if (bloc.sousActivites.length === 0) {
-      html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';
-    } else {
-      bloc.sousActivites.forEach(function(s){
-        html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + '</span></div>';
-      });
-    }
-    carte.innerHTML = html;
-    el.appendChild(carte);
-  });
+// Paires activité dépense / activité recette qui doivent s'aligner ligne par
+// ligne (mêmes postes des deux côtés). Les postes sans équivalent (Local,
+// Fonctionnement, Instruments/Partitions, Contrats, Subventions…) passent en
+// tête, chacun de son côté, sans contrainte d'alignement entre eux.
+const PAIRES_BILAN = [
+  ['Local', null],
+  ['Fonctionnement', null],
+  ['Instruments/Partitions', null],
+  [null, 'Contrats'],
+  [null, 'Subventions/cotisations/Interets'],
+  ['Animation', 'Animation'],
+  ['Sainte Cécile', 'Sainte Cécile'],
+  ['Dépenses Diverses', 'Recettes diverses'],
+  ['Bodega', 'Bodega']
+];
+
+function construireCarteBilan(bloc, type) {
+  const carte = document.createElement('div');
+  carte.className = 'card bilan-bloc ' + type;
+  let html = '<div class="bilan-bloc-header ' + type + '"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
+  if (bloc.sousActivites.length === 0) {
+    html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';
+  } else {
+    bloc.sousActivites.forEach(function(s){
+      html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + '</span></div>';
+    });
+  }
+  carte.innerHTML = html;
+  return carte;
 }
 
 function renderBilanAnnuelEcran() {
@@ -1468,8 +1475,19 @@ function renderBilanAnnuelEcran() {
   soldeEl.classList.toggle('negative', data.solde < 0);
   $('bilan-annuel-total-recettes').textContent = '+ ' + formatMoney(data.totalRecettes);
   $('bilan-annuel-total-depenses').textContent = '− ' + formatMoney(data.totalDepenses);
-  renderBlocsBilan('bilan-annuel-depenses', data.depenses, 'depense');
-  renderBlocsBilan('bilan-annuel-recettes', data.recettes, 'recette');
+
+  const depensesParNom = {};
+  data.depenses.forEach(function(b){ depensesParNom[b.activite] = b; });
+  const recettesParNom = {};
+  data.recettes.forEach(function(b){ recettesParNom[b.activite] = b; });
+
+  const grille = $('bilan-annuel-grille');
+  grille.innerHTML = '';
+  PAIRES_BILAN.forEach(function(paire){
+    const nomDep = paire[0], nomRec = paire[1];
+    grille.appendChild(nomDep && depensesParNom[nomDep] ? construireCarteBilan(depensesParNom[nomDep], 'depense') : document.createElement('div'));
+    grille.appendChild(nomRec && recettesParNom[nomRec] ? construireCarteBilan(recettesParNom[nomRec], 'recette') : document.createElement('div'));
+  });
 }
 
 // Chargement paresseux de jsPDF + autoTable (uniquement pour l'export PDF).

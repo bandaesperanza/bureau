@@ -900,13 +900,39 @@ function genererNumeroTransaction(annee) {
   });
 }
 
+// Sous-activités par défaut, extraites de l'onglet "Bilan Annuel" du fichier
+// Suivi_compte_2025.xlsm (colonne C pour les dépenses, colonne I pour les
+// recettes). Injectées uniquement pour une activité qui n'a encore aucune
+// sous-activité enregistrée — n'écrase jamais un ajout déjà fait dans l'app.
+const SOUS_ACTIVITES_DEFAUT_DEPENSES = {
+  'Local': ['Travaux local', 'Travaux bodéga', 'Remboursement crédit', 'Eau et électricité', 'Achat apéritif', 'Achat fourniture local', 'Taxe foncière', 'Taxe SITCOM'],
+  'Fonctionnement': ['Divers banque', 'Inscription UML, FMA', 'Hébergement adresse mail', 'Frais secrétariat', 'Abonnement internet et téléphone', 'Repas divers', 'Assurance'],
+  'Instruments/Partitions': ['Instruments : achats, réparations', 'Consommables instruments', 'Partitions'],
+  'Animation': ['Journée cohésion', 'Fêtes de Tyrosse', 'Déguisement fêtes de Tyrosse', 'Bus Rincon de Soto', 'Bus Bayonne'],
+  'Sainte Cécile': ['Repas, nourriture', 'Boissons', 'Animation', 'Divers'],
+  'Dépenses Diverses': ['Fleurs', 'Cadeaux', 'Commission vestimentaire', 'Avance pour les musiciens', 'Remboursement prêt musicien bodéga'],
+  'Bodega': ['Nourriture Fêtes de Tyrosse', 'Boissons Fêtes de Tyrosse', 'Divers Fêtes de Tyrosse']
+};
+const SOUS_ACTIVITES_DEFAUT_RECETTES = {
+  'Contrats': ['Match EBPLO', 'Match Aviron Bayonnais', 'Kbane du Golf', 'Mayades de Tyrosse', 'Fêtes des Souquayrots', 'Réception chez Cousseau', 'Fêtes de Saubusse', 'Fêtes de St-Martin-de-Hinx', 'Fêtes de Bayonne', "Fêtes d'Angresse", 'Fêtes de Tyrosse', 'Marché des producteurs Leclerc', 'Landes Emotions', 'Fêtes de Soustons', 'Fêtes de Seignosse', "Fêtes d'Orx", 'Séminaire La Vuelta', 'Fêtes de Josse'],
+  'Subventions/cotisations/Interets': ['Subventions communales', 'Subventions départementales', 'Subventions SACEM', 'Cotisations musiciens', 'Divers banque'],
+  'Animation': ['Participation journée cohésion', 'Participation fêtes de Tyrosse', 'Participation bus Bayonne', 'Participation repas 11/11'],
+  'Sainte Cécile': ['Participation Ste Cécile', 'Urne cinéma', 'Urne salle repas'],
+  'Recettes diverses': ['Prêt des musiciens pour bodéga', 'Cochon local', 'Don exceptionnel', 'Remboursement avances des musiciens', 'Bodéga', 'Divers'],
+  'Bodega': [] // aucune sous-activité recette dédiée trouvée dans le fichier — à ajouter au besoin
+};
+
 // Aligne la liste stockée sur la liste fixe : ajoute les manquantes, retire
 // celles qui ne sont plus dans la liste fixe, et conserve les sous-activités
 // déjà saisies pour les activités qui existaient déjà sous le même nom.
-function reconcilierActivites(listeActuelle, nomsFixes) {
+// Si une activité n'a encore aucune sous-activité, on la seed avec les
+// valeurs par défaut (première initialisation seulement).
+function reconcilierActivites(listeActuelle, nomsFixes, sousActivitesDefaut) {
   return nomsFixes.map(function(nom){
     const existant = (listeActuelle || []).find(function(a){ return a.nom === nom; });
-    return { nom: nom, sousActivites: existant ? (existant.sousActivites || []) : [] };
+    const sousExistantes = existant ? (existant.sousActivites || []) : [];
+    const sousActivites = sousExistantes.length > 0 ? sousExistantes : ((sousActivitesDefaut && sousActivitesDefaut[nom]) || []);
+    return { nom: nom, sousActivites: sousActivites };
   });
 }
 
@@ -915,8 +941,8 @@ function chargerActivites(estAdmin) {
   const refR = fbDb.collection('config').doc('activitesRecettes');
   return Promise.all([refD.get(), refR.get()]).then(function(results){
     const docD = results[0], docR = results[1];
-    state.activitesDepenses = reconcilierActivites(docD.exists ? docD.data().liste : [], ACTIVITES_FIXES_DEPENSES);
-    state.activitesRecettes = reconcilierActivites(docR.exists ? docR.data().liste : [], ACTIVITES_FIXES_RECETTES);
+    state.activitesDepenses = reconcilierActivites(docD.exists ? docD.data().liste : [], ACTIVITES_FIXES_DEPENSES, SOUS_ACTIVITES_DEFAUT_DEPENSES);
+    state.activitesRecettes = reconcilierActivites(docR.exists ? docR.data().liste : [], ACTIVITES_FIXES_RECETTES, SOUS_ACTIVITES_DEFAUT_RECETTES);
     // Seul un admin a le droit d'écrire dans "config" (règles Firestore) —
     // on persiste la réconciliation seulement dans ce cas ; les autres
     // utilisent la version réconciliée en mémoire pour la session en cours.

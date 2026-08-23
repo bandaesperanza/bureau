@@ -1608,13 +1608,13 @@ function genererExcelBilanAnnuel(data) {
   ligneActivite('TOTAL RECETTES', data.totalRecettes, COULEUR_RECETTE);
   feuille.addRow([]);
 
-  // Solde
-  const ligneSolde = feuille.addRow(['SOLDE', data.solde]);
+  // Résultat
+  const ligneSolde = feuille.addRow(['RÉSULTAT', data.solde]);
   ligneSolde.height = 22;
   ligneSolde.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
   ligneSolde.getCell(2).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
   ligneSolde.eachCell(function(c){
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: data.solde < 0 ? COULEUR_DEPENSE : COULEUR_MARQUE } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: data.solde < 0 ? COULEUR_DEPENSE : COULEUR_RECETTE } };
   });
   ligneSolde.getCell(2).numFmt = '#,##0.00 €';
   ligneSolde.getCell(2).alignment = { horizontal: 'right' };
@@ -1680,7 +1680,7 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
     body: [[
       { content: 'TOTAL DÉPENSES   ' + formatMoneyPDF(data.totalDepenses), styles: { fontStyle: 'bold', fillColor: [245, 225, 222], textColor: [196, 48, 42], halign: 'center', fontSize: 9, cellPadding: 2 } },
       { content: 'TOTAL RECETTES   ' + formatMoneyPDF(data.totalRecettes), styles: { fontStyle: 'bold', fillColor: [228, 241, 231], textColor: [46, 125, 78], halign: 'center', fontSize: 9, cellPadding: 2 } },
-      { content: 'SOLDE   ' + formatMoneyPDF(data.solde), styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255, halign: 'center', fontSize: 9, cellPadding: 2 } }
+      { content: 'RÉSULTAT   ' + formatMoneyPDF(data.solde), styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255, halign: 'center', fontSize: 9, cellPadding: 2 } }
     ]],
     theme: 'plain',
     styles: { font: 'helvetica', lineWidth: 0 }
@@ -1689,8 +1689,11 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
 
   // Chaque catégorie démarre par un filet fin au-dessus de son en-tête, pour
   // bien la séparer visuellement de la précédente (sauf la toute première).
+  // Taille de police très proche de celle des lignes normales : un en-tête
+  // nettement plus haut que les autres lignes désynchronise l'alignement
+  // entre les deux colonnes au fil des catégories.
   function ligneBloc(bloc, fond, estPremiere) {
-    const styleEntete = { fontStyle: 'bold', fillColor: fond, fontSize: 7.2 };
+    const styleEntete = { fontStyle: 'bold', fillColor: fond, fontSize: 6.1 };
     if (!estPremiere) { styleEntete.lineWidth = { top: 0.35, right: 0, bottom: 0, left: 0 }; styleEntete.lineColor = [170, 164, 178]; }
     const lignes = [[
       { content: bloc.activite, styles: styleEntete },
@@ -1706,8 +1709,10 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
     return lignes;
   }
 
+  // Ligne vide de comblement : entièrement blanche, sans aucun trait.
   function ligneVide() {
-    return [{ content: '', styles: { fillColor: [255, 255, 255] } }, ''];
+    const styleVide = { fillColor: [255, 255, 255], lineWidth: 0 };
+    return [{ content: '', styles: styleVide }, { content: '', styles: styleVide }];
   }
 
   const depensesParNom = {};
@@ -1718,9 +1723,9 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(196, 48, 42);
-  doc.text('Dépenses', xGauche, y);
+  doc.text('Dépenses', xGauche + largeurCol / 2, y, { align: 'center' });
   doc.setTextColor(46, 125, 78);
-  doc.text('Recettes', xDroite, y);
+  doc.text('Recettes', xDroite + largeurCol / 2, y, { align: 'center' });
   y += 2.5;
 
   const STYLE_TABLE = {
@@ -1763,7 +1768,7 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
 
   doc.autoTable(Object.assign({
     startY: y, margin: { left: xGauche }, tableWidth: largeurCol,
-    head: [['Catégorie / Sous-catégorie', 'Montant']],
+    head: [['', 'Montant']],
     body: corpsDep,
     columnStyles: { 0: { cellWidth: largeurCol - 24 }, 1: { halign: 'right', cellWidth: 24 } }
   }, STYLE_TABLE));
@@ -1771,7 +1776,7 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
 
   doc.autoTable(Object.assign({
     startY: y, margin: { left: xDroite }, tableWidth: largeurCol,
-    head: [['Catégorie / Sous-catégorie', 'Montant']],
+    head: [['', 'Montant']],
     body: corpsRec,
     columnStyles: { 0: { cellWidth: largeurCol - 24 }, 1: { halign: 'right', cellWidth: 24 } }
   }, STYLE_TABLE));

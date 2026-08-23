@@ -410,6 +410,8 @@
   <main>
     <!-- ---------- Accueil / Tableau de bord ---------- -->
     <section id="view-dashboard" class="view active">
+      <div class="chip-row" id="annee-chips"></div>
+
       <div class="card balance-card">
         <div class="balance-label">Solde actuel</div>
         <div class="balance-amount" id="balance-total">0,00 €</div>
@@ -672,6 +674,7 @@ const state = {
   resourceKeys: { },   // rempli plus bas avec la clé du dossier racine
   transactions: [],
   filtre: 'tout',
+  anneeFiltre: String(new Date().getFullYear()),
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -1029,9 +1032,40 @@ document.querySelectorAll('#filter-chips .chip').forEach(function(chip){
   });
 });
 
+function renderAnneeChips() {
+  const anneeCourante = String(new Date().getFullYear());
+  const annees = new Set([anneeCourante]);
+  state.transactions.forEach(function(t){
+    if (t.date) annees.add(t.date.slice(0, 4));
+  });
+  const anneesTriees = Array.from(annees).sort().reverse();
+
+  const el = $('annee-chips');
+  el.innerHTML = '';
+  const chipToutes = document.createElement('div');
+  chipToutes.className = 'chip' + (state.anneeFiltre === 'toutes' ? ' active' : '');
+  chipToutes.textContent = 'Toutes';
+  chipToutes.addEventListener('click', function(){ state.anneeFiltre = 'toutes'; renderAnneeChips(); renderDashboard(); });
+  el.appendChild(chipToutes);
+
+  anneesTriees.forEach(function(annee){
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (state.anneeFiltre === annee ? ' active' : '');
+    chip.textContent = annee;
+    chip.addEventListener('click', function(){ state.anneeFiltre = annee; renderAnneeChips(); renderDashboard(); });
+    el.appendChild(chip);
+  });
+}
+
 function renderDashboard() {
+  renderAnneeChips();
+
+  const transactionsAnnee = state.anneeFiltre === 'toutes'
+    ? state.transactions
+    : state.transactions.filter(function(t){ return (t.date || '').slice(0, 4) === state.anneeFiltre; });
+
   let totalIn = 0, totalOut = 0;
-  state.transactions.forEach(function(tx){
+  transactionsAnnee.forEach(function(tx){
     if (tx.type === 'recette') totalIn += Number(tx.montant) || 0;
     else totalOut += Number(tx.montant) || 0;
   });
@@ -1042,7 +1076,7 @@ function renderDashboard() {
   $('balance-in').textContent = '+ ' + formatMoney(totalIn);
   $('balance-out').textContent = '− ' + formatMoney(totalOut);
 
-  const liste = state.filtre === 'tout' ? state.transactions : state.transactions.filter(function(t){ return t.type === state.filtre; });
+  const liste = state.filtre === 'tout' ? transactionsAnnee : transactionsAnnee.filter(function(t){ return t.type === state.filtre; });
   const listEl = $('tx-list');
   listEl.innerHTML = '';
   $('tx-empty').classList.toggle('hidden', liste.length > 0);

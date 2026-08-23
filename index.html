@@ -1441,11 +1441,9 @@ function calculerBilanAnnuel(annee) {
 // Fonctionnement, Instruments/Partitions, Contrats, Subventions…) passent en
 // tête, chacun de son côté, sans contrainte d'alignement entre eux.
 const PAIRES_BILAN = [
-  ['Local', null],
-  ['Fonctionnement', null],
+  ['Local', 'Contrats'],
+  ['Fonctionnement', 'Subventions/cotisations/Interets'],
   ['Instruments/Partitions', null],
-  [null, 'Contrats'],
-  [null, 'Subventions/cotisations/Interets'],
   ['Animation', 'Animation'],
   ['Sainte Cécile', 'Sainte Cécile'],
   ['Dépenses Diverses', 'Recettes diverses'],

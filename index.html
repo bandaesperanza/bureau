@@ -1436,24 +1436,21 @@ function calculerBilanAnnuel(annee) {
   return { annee: annee, depenses: depenses, recettes: recettes, totalDepenses: totalDepenses, totalRecettes: totalRecettes, solde: totalRecettes - totalDepenses };
 }
 
-// Paires activité dépense / activité recette qui doivent s'aligner ligne par
-// ligne (mêmes postes des deux côtés). Les postes sans équivalent (Local,
-// Fonctionnement, Instruments/Partitions, Contrats, Subventions…) passent en
-// tête, chacun de son côté, sans contrainte d'alignement entre eux.
+// Postes alignés 1:1 (Animation, Sainte Cécile, Diverses, Bodega existent
+// des deux côtés). Local/Fonctionnement/Instruments (dépense) n'ont pas
+// d'équivalent direct : regroupés en un seul pavé, face aux deux pavés
+// Contrats/Subventions côté recette — la hauteur s'ajuste au plus grand des deux.
+const GROUPE_DEPENSE_SANS_EQUIVALENT = ['Local', 'Fonctionnement', 'Instruments/Partitions'];
+const GROUPE_RECETTE_SANS_EQUIVALENT = ['Contrats', 'Subventions/cotisations/Interets'];
 const PAIRES_BILAN = [
-  ['Local', 'Contrats'],
-  ['Fonctionnement', 'Subventions/cotisations/Interets'],
-  ['Instruments/Partitions', null],
   ['Animation', 'Animation'],
   ['Sainte Cécile', 'Sainte Cécile'],
   ['Dépenses Diverses', 'Recettes diverses'],
   ['Bodega', 'Bodega']
 ];
 
-function construireCarteBilan(bloc, type) {
-  const carte = document.createElement('div');
-  carte.className = 'card bilan-bloc ' + type;
-  let html = '<div class="bilan-bloc-header ' + type + '"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
+function construireLigneBloc(bloc) {
+  let html = '<div class="bilan-bloc-header"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
   if (bloc.sousActivites.length === 0) {
     html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';
   } else {
@@ -1461,8 +1458,32 @@ function construireCarteBilan(bloc, type) {
       html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + '</span></div>';
     });
   }
-  carte.innerHTML = html;
+  return html;
+}
+
+function construireCarteBilan(bloc, type) {
+  const carte = document.createElement('div');
+  carte.className = 'card bilan-bloc ' + type;
+  carte.innerHTML = construireLigneBloc(bloc).replace('bilan-bloc-header', 'bilan-bloc-header ' + type);
   return carte;
+}
+
+// Un seul pavé (une seule carte) regroupant plusieurs activités à la suite,
+// séparées par un simple filet — pour Local/Fonctionnement/Instruments.
+function construireCarteBilanGroupee(blocs, type) {
+  const carte = document.createElement('div');
+  carte.className = 'card bilan-bloc ' + type;
+  carte.innerHTML = blocs.map(function(bloc){ return construireLigneBloc(bloc).replace('bilan-bloc-header', 'bilan-bloc-header ' + type); })
+    .join('<div style="border-top:1px solid var(--rule); margin:12px 0 2px;"></div>');
+  return carte;
+}
+
+// Plusieurs pavés distincts empilés dans un même conteneur (une "colonne"
+// dans la cellule de grille) — pour Contrats + Subventions.
+function construireColonneBilan(blocs, type) {
+  const wrap = document.createElement('div');
+  blocs.forEach(function(bloc){ wrap.appendChild(construireCarteBilan(bloc, type)); });
+  return wrap;
 }
 
 function renderBilanAnnuelEcran() {
@@ -1481,6 +1502,12 @@ function renderBilanAnnuelEcran() {
 
   const grille = $('bilan-annuel-grille');
   grille.innerHTML = '';
+
+  const blocsGroupeDep = GROUPE_DEPENSE_SANS_EQUIVALENT.map(function(n){ return depensesParNom[n]; }).filter(Boolean);
+  const blocsGroupeRec = GROUPE_RECETTE_SANS_EQUIVALENT.map(function(n){ return recettesParNom[n]; }).filter(Boolean);
+  grille.appendChild(construireCarteBilanGroupee(blocsGroupeDep, 'depense'));
+  grille.appendChild(construireColonneBilan(blocsGroupeRec, 'recette'));
+
   PAIRES_BILAN.forEach(function(paire){
     const nomDep = paire[0], nomRec = paire[1];
     grille.appendChild(nomDep && depensesParNom[nomDep] ? construireCarteBilan(depensesParNom[nomDep], 'depense') : document.createElement('div'));

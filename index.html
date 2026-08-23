@@ -1529,49 +1529,123 @@ function chargerLibPDF() {
 }
 
 function genererExcelBilanAnnuel(data) {
-  const lignes = [];
-  lignes.push(['Bilan annuel ' + data.annee + ' — Banda Esperanza']);
-  lignes.push([]);
-  lignes.push(['DÉPENSES']);
-  lignes.push(['Catégorie / Sous-catégorie', 'Montant']);
-  data.depenses.forEach(function(bloc){
-    lignes.push([bloc.activite, bloc.total]);
-    bloc.sousActivites.forEach(function(s){ lignes.push(['   ' + s.nom, s.total]); });
-  });
-  lignes.push(['TOTAL DÉPENSES', data.totalDepenses]);
-  lignes.push([]);
-  lignes.push(['RECETTES']);
-  lignes.push(['Catégorie / Sous-catégorie', 'Montant']);
-  data.recettes.forEach(function(bloc){
-    lignes.push([bloc.activite, bloc.total]);
-    bloc.sousActivites.forEach(function(s){ lignes.push(['   ' + s.nom, s.total]); });
-  });
-  lignes.push(['TOTAL RECETTES', data.totalRecettes]);
-  lignes.push([]);
-  lignes.push(['SOLDE', data.solde]);
+  const classeur = new ExcelJS.Workbook();
+  classeur.creator = 'Trésorerie Banda Esperanza';
+  const feuille = classeur.addWorksheet('Bilan ' + data.annee, { views: [{ state: 'frozen', ySplit: 1 }] });
 
-  const feuille = XLSX.utils.aoa_to_sheet(lignes);
-  feuille['!cols'] = [{ wch: 38 }, { wch: 14 }];
-  const classeur = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(classeur, feuille, 'Bilan ' + data.annee);
-  const contenu = XLSX.write(classeur, { bookType: 'xlsx', type: 'array' });
-  return new Blob([contenu], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  feuille.columns = [{ width: 42 }, { width: 16 }];
+
+  const COULEUR_MARQUE = 'FF2A2560';
+  const COULEUR_DEPENSE = 'FFC4302A';
+  const COULEUR_DEPENSE_CLAIR = 'FFF5E1DE';
+  const COULEUR_RECETTE = 'FF2E7D4E';
+  const COULEUR_RECETTE_CLAIR = 'FFE4F1E7';
+  const BLANC = 'FFFFFFFF';
+
+  function styleTitre(cellule, texte, couleurFond) {
+    cellule.value = texte;
+    cellule.font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
+    cellule.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: couleurFond } };
+    cellule.alignment = { vertical: 'middle' };
+  }
+
+  function ligneSection(nom, couleurFond) {
+    const ligne = feuille.addRow([nom, null]);
+    ligne.height = 20;
+    feuille.mergeCells(ligne.number, 1, ligne.number, 2);
+    styleTitre(ligne.getCell(1), nom, couleurFond);
+  }
+
+  function ligneEnTeteColonnes() {
+    const ligne = feuille.addRow(['Catégorie / Sous-catégorie', 'Montant']);
+    ligne.eachCell(function(c){
+      c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF5B5770' } };
+      c.border = { bottom: { style: 'thin', color: { argb: 'FFDCD5DE' } } };
+    });
+  }
+
+  function ligneActivite(nom, montant, couleurTexte) {
+    const ligne = feuille.addRow([nom, montant]);
+    ligne.getCell(1).font = { name: 'Calibri', size: 10, bold: true };
+    ligne.getCell(2).font = { name: 'Calibri', size: 10, bold: true, color: { argb: couleurTexte } };
+    ligne.getCell(2).numFmt = '#,##0.00 €';
+    ligne.getCell(2).alignment = { horizontal: 'right' };
+  }
+
+  function ligneSousActivite(nom, montant) {
+    const ligne = feuille.addRow(['     ' + nom, montant]);
+    ligne.getCell(1).font = { name: 'Calibri', size: 10, color: { argb: 'FF5B5770' } };
+    ligne.getCell(2).font = { name: 'Calibri', size: 10, color: { argb: 'FF5B5770' } };
+    ligne.getCell(2).numFmt = '#,##0.00 €';
+    ligne.getCell(2).alignment = { horizontal: 'right' };
+  }
+
+  // Titre
+  const ligneTitre = feuille.addRow(['Bilan annuel ' + data.annee + ' — Banda Esperanza', null]);
+  ligneTitre.height = 26;
+  feuille.mergeCells(ligneTitre.number, 1, ligneTitre.number, 2);
+  styleTitre(ligneTitre.getCell(1), ligneTitre.getCell(1).value, COULEUR_MARQUE);
+  ligneTitre.getCell(1).font = { name: 'Calibri', size: 14, bold: true, color: { argb: BLANC } };
+  feuille.addRow([]);
+
+  // Dépenses
+  ligneSection('DÉPENSES', COULEUR_DEPENSE);
+  ligneEnTeteColonnes();
+  data.depenses.forEach(function(bloc){
+    ligneActivite(bloc.activite, bloc.total, COULEUR_DEPENSE);
+    bloc.sousActivites.forEach(function(s){ ligneSousActivite(s.nom, s.total); });
+  });
+  ligneActivite('TOTAL DÉPENSES', data.totalDepenses, COULEUR_DEPENSE);
+  feuille.addRow([]);
+
+  // Recettes
+  ligneSection('RECETTES', COULEUR_RECETTE);
+  ligneEnTeteColonnes();
+  data.recettes.forEach(function(bloc){
+    ligneActivite(bloc.activite, bloc.total, COULEUR_RECETTE);
+    bloc.sousActivites.forEach(function(s){ ligneSousActivite(s.nom, s.total); });
+  });
+  ligneActivite('TOTAL RECETTES', data.totalRecettes, COULEUR_RECETTE);
+  feuille.addRow([]);
+
+  // Solde
+  const ligneSolde = feuille.addRow(['SOLDE', data.solde]);
+  ligneSolde.height = 22;
+  ligneSolde.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
+  ligneSolde.getCell(2).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
+  ligneSolde.eachCell(function(c){
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: data.solde < 0 ? COULEUR_DEPENSE : COULEUR_MARQUE } };
+  });
+  ligneSolde.getCell(2).numFmt = '#,##0.00 €';
+  ligneSolde.getCell(2).alignment = { horizontal: 'right' };
+
+  return classeur.xlsx.writeBuffer().then(function(buffer){
+    return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  });
 }
 
-function genererPDFBilanAnnuel(data) {
+function genererPDFBilanAnnuel(data, logoDataUrl) {
   const jsPDF = window.jspdf.jsPDF;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const marge = 14;
   let y = 20;
 
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, marge, 10, 16, 16); } catch (e) { /* format image non géré, on ignore */ }
+  }
+  const decalageTitre = logoDataUrl ? marge + 20 : marge;
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
+  doc.setFontSize(17);
   doc.setTextColor(42, 37, 96);
-  doc.text('Bilan annuel ' + data.annee, marge, y);
+  doc.text('Bilan annuel ' + data.annee, decalageTitre, y);
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(120, 120, 120);
-  doc.text('Banda Esperanza Tyrosse', marge, y + 6);
-  y += 16;
+  doc.text('Banda Esperanza Tyrosse', decalageTitre, y + 6);
+  y += 20;
+  doc.setDrawColor(220, 213, 222);
+  doc.line(marge, y - 6, 210 - marge, y - 6);
 
   function ligneBloc(bloc, fond) {
     const lignes = [[{ content: bloc.activite, styles: { fontStyle: 'bold', fillColor: fond } }, { content: formatMoney(bloc.total), styles: { fontStyle: 'bold', fillColor: fond, halign: 'right' } }]];
@@ -1585,6 +1659,7 @@ function genererPDFBilanAnnuel(data) {
     return lignes;
   }
 
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(196, 48, 42);
   doc.text('Dépenses', marge, y);
@@ -1594,14 +1669,16 @@ function genererPDFBilanAnnuel(data) {
   doc.autoTable({
     startY: y, margin: { left: marge, right: marge },
     head: [['Catégorie / Sous-catégorie', 'Montant']],
-    body: corpsDepenses, theme: 'plain',
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.2 },
-    headStyles: { fillColor: [42, 37, 96], textColor: 255 },
-    columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+    body: corpsDepenses, theme: 'striped',
+    alternateRowStyles: { fillColor: [250, 248, 246] },
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.4, lineColor: [220, 213, 222], lineWidth: 0.1 },
+    headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 1: { halign: 'right', cellWidth: 32 } }
   });
   y = doc.lastAutoTable.finalY + 10;
 
-  if (y > 250) { doc.addPage(); y = 20; }
+  if (y > 245) { doc.addPage(); y = 20; }
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(46, 125, 78);
   doc.text('Recettes', marge, y);
@@ -1611,27 +1688,57 @@ function genererPDFBilanAnnuel(data) {
   doc.autoTable({
     startY: y, margin: { left: marge, right: marge },
     head: [['Catégorie / Sous-catégorie', 'Montant']],
-    body: corpsRecettes, theme: 'plain',
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.2 },
-    headStyles: { fillColor: [42, 37, 96], textColor: 255 },
-    columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+    body: corpsRecettes, theme: 'striped',
+    alternateRowStyles: { fillColor: [248, 250, 249] },
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.4, lineColor: [220, 213, 222], lineWidth: 0.1 },
+    headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 1: { halign: 'right', cellWidth: 32 } }
   });
   y = doc.lastAutoTable.finalY + 10;
 
   if (y > 250) { doc.addPage(); y = 20; }
+  const couleurSolde = data.solde < 0 ? [196, 48, 42] : [46, 125, 78];
   doc.autoTable({
     startY: y, margin: { left: marge, right: marge },
     body: [
       ['Total dépenses', formatMoney(data.totalDepenses)],
       ['Total recettes', formatMoney(data.totalRecettes)],
-      [{ content: 'Solde', styles: { fontStyle: 'bold' } }, { content: formatMoney(data.solde), styles: { fontStyle: 'bold' } }]
+      [{ content: 'Solde', styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255 } },
+       { content: formatMoney(data.solde), styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255, halign: 'right' } }]
     ],
     theme: 'grid',
-    styles: { font: 'helvetica', fontSize: 10, cellPadding: 3 },
-    columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+    styles: { font: 'helvetica', fontSize: 10.5, cellPadding: 3.5 },
+    columnStyles: { 1: { halign: 'right', cellWidth: 32 } }
   });
 
+  // Pied de page : mention + numéro de page, sur chaque page.
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Banda Esperanza Tyrosse — Bilan annuel ' + data.annee, marge, 290);
+    doc.text('Page ' + i + ' / ' + totalPages, 210 - marge, 290, { align: 'right' });
+  }
+
   return doc.output('blob');
+}
+
+// Récupère le logo local en base64 pour l'insérer dans le PDF (best-effort :
+// si indisponible, le PDF se génère quand même, juste sans logo).
+function chargerLogoBase64() {
+  return fetch('./logo-header.png').then(function(r){
+    if (!r.ok) throw new Error('logo introuvable');
+    return r.blob();
+  }).then(function(blob){
+    return new Promise(function(resolve, reject){
+      const reader = new FileReader();
+      reader.onload = function(){ resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }).catch(function(){ return null; });
 }
 
 $('btn-bilan-export-excel').addEventListener('click', function(){ exporterBilanAnnuel('xlsx'); });
@@ -1644,8 +1751,8 @@ function exporterBilanAnnuel(format) {
   statusEl.textContent = 'Préparation…';
 
   const preparation = format === 'xlsx'
-    ? chargerLibXLSX().then(function(){ return genererExcelBilanAnnuel(data); })
-    : chargerLibPDF().then(function(){ return genererPDFBilanAnnuel(data); });
+    ? chargerLibExcelJS().then(function(){ return genererExcelBilanAnnuel(data); })
+    : chargerLibPDF().then(function(){ return chargerLogoBase64(); }).then(function(logo){ return genererPDFBilanAnnuel(data, logo); });
 
   preparation.then(function(blob){
     statusEl.textContent = 'Connexion Drive…';
@@ -2012,19 +2119,15 @@ function uploaderFichierDrive(blob, nomFichier, folderId, mimeType) {
   });
 }
 
-// Chargement paresseux de SheetJS (uniquement quand export/import est utilisé).
-let promesseLibXLSX = null;
-function chargerLibXLSX() {
-  if (window.XLSX) return Promise.resolve();
-  if (promesseLibXLSX) return promesseLibXLSX;
-  promesseLibXLSX = new Promise(function(resolve, reject){
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload = function(){ resolve(); };
-    s.onerror = function(){ promesseLibXLSX = null; reject(new Error('Impossible de charger la librairie Excel (réseau ?).')); };
-    document.head.appendChild(s);
-  });
-  return promesseLibXLSX;
+// Chargement paresseux d'ExcelJS (gratuite, supporte la mise en forme —
+// contrairement à SheetJS Community qui ne sait pas écrire de styles).
+let promesseLibExcelJS = null;
+function chargerLibExcelJS() {
+  if (window.ExcelJS) return Promise.resolve();
+  if (promesseLibExcelJS) return promesseLibExcelJS;
+  promesseLibExcelJS = chargerScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js')
+    .catch(function(err){ promesseLibExcelJS = null; throw err; });
+  return promesseLibExcelJS;
 }
 
 // Déduit une extension de fichier correcte, à partir du nom d'origine ou du type MIME.
@@ -2341,24 +2444,55 @@ function renderAdminActivites() {
    Colonnes Activité et Sous-activité séparées (pas de texte combiné),
    pour permettre un ré-import fidèle et sans ambiguïté.
    ============================================================ */
-const ENTETES_GRAND_LIVRE = ['Numéro', 'Date', 'Type', 'Montant', 'Activité', 'Sous-activité', 'Moyen de paiement', 'Libellé', 'Justificatif'];
 
-function construireLignesGrandLivre(annee) {
-  const lignes = state.transactions
-    .filter(function(t){ return (t.date || '').slice(0, 4) === String(annee); })
-    .slice()
-    .sort(function(a, b){
-      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-      return (a.numero || '').localeCompare(b.numero || '');
-    });
-  const corps = lignes.map(function(t){
-    return [
-      t.numero || '', t.date || '', t.type === 'recette' ? 'Recette' : 'Dépense',
-      t.montant || 0, t.activite || '', t.sousActivite || '',
-      t.moyenPaiement || '', t.libelle || '', t.driveFileUrl || ''
-    ];
+// Construit un classeur ExcelJS stylé pour le grand livre (en-tête colorée,
+// lignes zébrées, montants au format monétaire, colonne Type coloriée).
+function genererExcelGrandLivre(annee, lignesTx) {
+  const classeur = new ExcelJS.Workbook();
+  classeur.creator = 'Trésorerie Banda Esperanza';
+  const feuille = classeur.addWorksheet('Grand livre ' + annee, { views: [{ state: 'frozen', ySplit: 1 }] });
+
+  feuille.columns = [
+    { header: 'Numéro', key: 'numero', width: 13 },
+    { header: 'Date', key: 'date', width: 12 },
+    { header: 'Type', key: 'type', width: 10 },
+    { header: 'Montant', key: 'montant', width: 13 },
+    { header: 'Activité', key: 'activite', width: 24 },
+    { header: 'Sous-activité', key: 'sousActivite', width: 30 },
+    { header: 'Moyen de paiement', key: 'moyenPaiement', width: 18 },
+    { header: 'Libellé', key: 'libelle', width: 42 },
+    { header: 'Justificatif', key: 'justificatif', width: 40 }
+  ];
+
+  const enTete = feuille.getRow(1);
+  enTete.height = 20;
+  enTete.eachCell(function(c){
+    c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2A2560' } };
+    c.alignment = { vertical: 'middle' };
   });
-  return [ENTETES_GRAND_LIVRE].concat(corps);
+
+  lignesTx.forEach(function(t, i){
+    const ligne = feuille.addRow({
+      numero: t.numero || '', date: t.date || '', type: t.type === 'recette' ? 'Recette' : 'Dépense',
+      montant: t.montant || 0, activite: t.activite || '', sousActivite: t.sousActivite || '',
+      moyenPaiement: t.moyenPaiement || '', libelle: t.libelle || '', justificatif: t.driveFileUrl || ''
+    });
+    if (i % 2 === 1) {
+      ligne.eachCell(function(c){ c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F2EF' } }; });
+    }
+    const celluleType = ligne.getCell('type');
+    celluleType.font = { name: 'Calibri', size: 10, bold: true, color: { argb: t.type === 'recette' ? 'FF2E7D4E' : 'FFC4302A' } };
+    const celluleMontant = ligne.getCell('montant');
+    celluleMontant.numFmt = '#,##0.00 €';
+    celluleMontant.font = { name: 'Calibri', size: 10, color: { argb: t.type === 'recette' ? 'FF2E7D4E' : 'FFC4302A' } };
+  });
+
+  feuille.autoFilter = { from: 'A1', to: 'I1' };
+
+  return classeur.xlsx.writeBuffer().then(function(buffer){
+    return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  });
 }
 
 $('btn-export-grandlivre').addEventListener('click', function(){
@@ -2369,20 +2503,24 @@ $('btn-export-grandlivre').addEventListener('click', function(){
   const statusEl = $('export-status');
   btn.disabled = true;
   statusEl.textContent = 'Préparation…';
-  let nbLignes = 0;
 
-  chargerLibXLSX().then(function(){
-    const donnees = construireLignesGrandLivre(annee);
-    nbLignes = donnees.length - 1;
-    if (nbLignes <= 0) throw new Error('Aucune transaction pour ' + annee + '.');
+  const lignesTx = state.transactions
+    .filter(function(t){ return (t.date || '').slice(0, 4) === annee; })
+    .slice()
+    .sort(function(a, b){
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return (a.numero || '').localeCompare(b.numero || '');
+    });
 
-    const feuille = XLSX.utils.aoa_to_sheet(donnees);
-    feuille['!cols'] = [{wch:12},{wch:11},{wch:9},{wch:10},{wch:24},{wch:30},{wch:16},{wch:40},{wch:40}];
-    const classeur = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(classeur, feuille, 'Grand livre ' + annee);
-    const contenu = XLSX.write(classeur, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([contenu], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (lignesTx.length === 0) {
+    statusEl.textContent = 'Aucune transaction pour ' + annee + '.';
+    btn.disabled = false;
+    return;
+  }
 
+  chargerLibExcelJS().then(function(){
+    return genererExcelGrandLivre(annee, lignesTx);
+  }).then(function(blob){
     statusEl.textContent = 'Connexion Drive…';
     return ensureDriveConnecte().then(function(ok){
       if (!ok) throw new Error('Connexion Drive nécessaire.');
@@ -2392,7 +2530,7 @@ $('btn-export-grandlivre').addEventListener('click', function(){
       return uploaderFichierDrive(blob, 'GrandLivre_' + annee + '.xlsx', folderId, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     });
   }).then(function(){
-    statusEl.textContent = nbLignes + ' transactions exportées vers Drive.';
+    statusEl.textContent = lignesTx.length + ' transactions exportées vers Drive.';
     toast('Grand livre ' + annee + ' exporté.');
   }).catch(function(err){
     statusEl.textContent = 'Erreur : ' + err.message;
@@ -2402,15 +2540,22 @@ $('btn-export-grandlivre').addEventListener('click', function(){
   });
 });
 
-// Lit une cellule Date qu'elle soit un objet Date (xlsx avec cellDates),
-// un numéro de série Excel, ou déjà une chaîne "AAAA-MM-JJ".
-function analyserDateCellule(valeur) {
+// Lit une cellule Date qu'elle soit un objet Date natif, un résultat de
+// formule ExcelJS ({result: ...}), ou déjà une chaîne "AAAA-MM-JJ".
+function valeurCellule(v) {
+  if (v && typeof v === 'object' && !(v instanceof Date) && v.result !== undefined) return v.result;
+  return v;
+}
+function analyserDateCellule(brut) {
+  const valeur = valeurCellule(brut);
   if (valeur instanceof Date) {
     return valeur.getFullYear() + '-' + String(valeur.getMonth() + 1).padStart(2, '0') + '-' + String(valeur.getDate()).padStart(2, '0');
   }
-  if (typeof valeur === 'number' && window.XLSX && XLSX.SSF) {
-    const d = XLSX.SSF.parse_date_code(valeur);
-    if (d) return d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
+  if (typeof valeur === 'number') {
+    // Numéro de série Excel (rare avec ExcelJS, mais on couvre le cas)
+    const epoque = new Date(Date.UTC(1899, 11, 30));
+    const d = new Date(epoque.getTime() + valeur * 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
   }
   return String(valeur || '').trim();
 }
@@ -2427,15 +2572,19 @@ function importerGrandLivre(file) {
   const statusEl = $('import-grandlivre-status');
   statusEl.textContent = 'Lecture du fichier…';
 
-  chargerLibXLSX().then(function(){
+  chargerLibExcelJS().then(function(){
     return file.arrayBuffer();
   }).then(function(buf){
-    const classeur = XLSX.read(buf, { type: 'array', cellDates: true });
-    const feuille = classeur.Sheets[classeur.SheetNames[0]];
-    const lignes = XLSX.utils.sheet_to_json(feuille, { header: 1, raw: true, defval: '' });
-    if (lignes.length < 2) throw new Error('Fichier vide ou illisible.');
+    const classeur = new ExcelJS.Workbook();
+    return classeur.xlsx.load(buf);
+  }).then(function(classeur){
+    const feuille = classeur.worksheets[0];
+    if (!feuille || feuille.rowCount < 2) throw new Error('Fichier vide ou illisible.');
 
-    const entetes = lignes[0].map(function(h){ return String(h).trim(); });
+    const entetes = [];
+    feuille.getRow(1).eachCell({ includeEmpty: true }, function(cell, colNumber){
+      entetes[colNumber - 1] = String(valeurCellule(cell.value) || '').trim();
+    });
     const requis = ['Numéro', 'Date', 'Type', 'Montant', 'Activité', 'Sous-activité', 'Moyen de paiement', 'Libellé'];
     const idx = {};
     requis.forEach(function(nom){ idx[nom] = entetes.indexOf(nom); });
@@ -2444,27 +2593,29 @@ function importerGrandLivre(file) {
     const idxJustificatif = entetes.indexOf('Justificatif');
 
     const transactions = [];
-    for (let i = 1; i < lignes.length; i++) {
-      const l = lignes[i];
-      if (!l || l.length === 0) continue;
-      const numero = String(l[idx['Numéro']] || '').trim();
-      const activite = String(l[idx['Activité']] || '').trim();
-      const montant = parseFloat(l[idx['Montant']]) || 0;
-      if (!numero || !activite || !montant) continue;
+    feuille.eachRow({ includeEmpty: false }, function(row, rowNumber){
+      if (rowNumber === 1) return;
+      const l = [];
+      row.eachCell({ includeEmpty: true }, function(cell, colNumber){ l[colNumber - 1] = cell.value; });
 
-      const typeTexte = String(l[idx['Type']] || '').trim().toLowerCase();
+      const numero = String(valeurCellule(l[idx['Numéro']]) || '').trim();
+      const activite = String(valeurCellule(l[idx['Activité']]) || '').trim();
+      const montant = parseFloat(valeurCellule(l[idx['Montant']])) || 0;
+      if (!numero || !activite || !montant) return;
+
+      const typeTexte = String(valeurCellule(l[idx['Type']]) || '').trim().toLowerCase();
       transactions.push({
         numero: numero,
         type: typeTexte.indexOf('recette') === 0 ? 'recette' : 'depense',
         date: analyserDateCellule(l[idx['Date']]),
         montant: montant,
         activite: activite,
-        sousActivite: String(l[idx['Sous-activité']] || '').trim(),
-        moyenPaiement: String(l[idx['Moyen de paiement']] || '').trim(),
-        libelle: String(l[idx['Libellé']] || '').trim(),
-        driveFileUrl: idxJustificatif !== -1 ? (String(l[idxJustificatif] || '').trim() || null) : null
+        sousActivite: String(valeurCellule(l[idx['Sous-activité']]) || '').trim(),
+        moyenPaiement: String(valeurCellule(l[idx['Moyen de paiement']]) || '').trim(),
+        libelle: String(valeurCellule(l[idx['Libellé']]) || '').trim(),
+        driveFileUrl: idxJustificatif !== -1 ? (String(valeurCellule(l[idxJustificatif]) || '').trim() || null) : null
       });
-    }
+    });
 
     if (transactions.length === 0) throw new Error('Aucune ligne valide trouvée dans le fichier.');
     if (!confirm('Importer ' + transactions.length + ' transactions depuis "' + file.name + '" ? Les lignes de même numéro seront mises à jour, pas dupliquées.')) {

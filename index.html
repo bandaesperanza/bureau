@@ -213,6 +213,21 @@
 
   .empty-state { text-align: center; padding: 30px 10px; color: var(--ink-soft); font-size: 13px; }
 
+  /* Livre de compte */
+  .tableau-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.livre { border-collapse: collapse; width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: nowrap; }
+  table.livre th {
+    text-align: left; padding: 9px 12px; background: var(--paper); border-bottom: 1px solid var(--rule);
+    cursor: pointer; color: var(--ink-soft); font-weight: 600; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.04em; user-select: none;
+  }
+  table.livre th.tri-actif { color: var(--stamp); }
+  table.livre td { padding: 8px 12px; border-bottom: 1px solid var(--rule); color: var(--ink); }
+  table.livre tbody tr:last-child td { border-bottom: none; }
+  table.livre tbody tr:active { background: var(--paper); }
+  table.livre td.montant.depense { color: var(--stamp); }
+  table.livre td.montant.recette { color: var(--green); }
+
   /* Formulaires */
   label.field-label {
     display: block; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -549,15 +564,56 @@
       <div class="card"><div id="admin-users-list"></div></div>
     </section>
 
-    <!-- ---------- Bilan (à venir) ---------- -->
+    <!-- ---------- Bilan / Livre de compte ---------- -->
     <section id="view-bilan" class="view">
-      <div class="card" style="text-align:center; padding:36px 20px;">
-        <div style="font-size:32px; margin-bottom:10px;">📊</div>
-        <div style="font-family:'Fraunces', serif; font-size:18px; margin-bottom:6px;">Bilan à venir</div>
-        <div class="tx-meta">
-          Cette section affichera bientôt des rapports par activité,
-          par période et un export récapitulatif.
+      <div class="card">
+        <label class="field-label">Année</label>
+        <select id="livre-annee"></select>
+
+        <label class="field-label">Type</label>
+        <select id="livre-type">
+          <option value="tout">Tout</option>
+          <option value="depense">Dépenses</option>
+          <option value="recette">Recettes</option>
+        </select>
+
+        <label class="field-label">Catégorie</label>
+        <select id="livre-activite"><option value="toutes">Toutes</option></select>
+
+        <label class="field-label">Moyen de paiement</label>
+        <select id="livre-moyen"><option value="tous">Tous</option></select>
+
+        <label class="field-label">Recherche (libellé)</label>
+        <input type="text" id="livre-recherche" placeholder="Rechercher dans le libellé…">
+      </div>
+
+      <div class="card balance-card">
+        <div class="balance-label" id="livre-total-label">0 TRANSACTION</div>
+        <div class="balance-amount" id="livre-total-montant" style="font-size:26px;">0,00 €</div>
+        <div class="balance-sub">
+          <span class="in" id="livre-total-in">+ 0,00 €</span>
+          <span class="out" id="livre-total-out">− 0,00 €</span>
         </div>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden;">
+        <div class="tableau-scroll">
+          <table class="livre">
+            <thead>
+              <tr>
+                <th data-champ="numero">Numéro</th>
+                <th data-champ="date">Date</th>
+                <th data-champ="moyenPaiement">Moyen</th>
+                <th data-champ="libelle">Libellé</th>
+                <th data-champ="activite">Catégorie</th>
+                <th data-champ="sousActivite">Sous-catégorie</th>
+                <th data-champ="montant">Montant</th>
+              </tr>
+            </thead>
+            <tbody id="livre-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state hidden" id="livre-empty">Aucune transaction ne correspond à ces filtres.</div>
       </div>
     </section>
   </main>
@@ -675,6 +731,7 @@ const state = {
   transactions: [],
   filtre: 'tout',
   anneeFiltre: String(new Date().getFullYear()),
+  livre: { annee: String(new Date().getFullYear()), type: 'tout', activite: 'toutes', moyen: 'tous', recherche: '', triChamp: 'date', triSens: 'desc' },
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -743,6 +800,7 @@ function showView(name) {
     b.classList.toggle('active', b.dataset.view === name);
   });
   if (name === 'form') resetForm();
+  if (name === 'bilan') renderLivre();
 }
 
 /* ============================================================
@@ -1018,6 +1076,7 @@ function demarrerEcouteTransactions() {
   unsubTx = fbDb.collection('transactions').orderBy('date', 'desc').onSnapshot(function(snap){
     state.transactions = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
     renderDashboard();
+    if (document.getElementById('view-bilan').classList.contains('active')) renderLivre();
   }, function(err){
     console.error('Ecoute transactions :', err);
   });
@@ -1095,6 +1154,150 @@ function renderDashboard() {
     row.style.cursor = 'pointer';
     row.addEventListener('click', function(){ ouvrirModalTransaction(tx); });
     listEl.appendChild(row);
+  });
+}
+
+/* ============================================================
+   BILAN / LIVRE DE COMPTE — filtres, tri, total adaptatif
+   ============================================================ */
+function remplirLivreAnnees() {
+  const anneeCourante = String(new Date().getFullYear());
+  const annees = new Set([anneeCourante]);
+  state.transactions.forEach(function(t){ if (t.date) annees.add(t.date.slice(0, 4)); });
+  const anneesTriees = Array.from(annees).sort().reverse();
+
+  const sel = $('livre-annee');
+  const valeurActuelle = state.livre.annee;
+  sel.innerHTML = '<option value="toutes">Toutes</option>';
+  anneesTriees.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    sel.appendChild(opt);
+  });
+  sel.value = valeurActuelle;
+  if (sel.value !== valeurActuelle) { state.livre.annee = 'toutes'; sel.value = 'toutes'; }
+}
+
+function remplirLivreActivites() {
+  let noms;
+  if (state.livre.type === 'depense') noms = state.activitesDepenses.map(function(a){ return a.nom; });
+  else if (state.livre.type === 'recette') noms = state.activitesRecettes.map(function(a){ return a.nom; });
+  else noms = Array.from(new Set(state.activitesDepenses.concat(state.activitesRecettes).map(function(a){ return a.nom; })));
+
+  const sel = $('livre-activite');
+  const valeurActuelle = state.livre.activite;
+  sel.innerHTML = '<option value="toutes">Toutes</option>';
+  noms.forEach(function(n){
+    const opt = document.createElement('option');
+    opt.value = n; opt.textContent = n;
+    sel.appendChild(opt);
+  });
+  sel.value = noms.indexOf(valeurActuelle) !== -1 ? valeurActuelle : 'toutes';
+  state.livre.activite = sel.value;
+}
+
+function remplirLivreMoyens() {
+  let liste;
+  if (state.livre.type === 'depense') liste = MOYENS_PAIEMENT_DEPENSE;
+  else if (state.livre.type === 'recette') liste = MOYENS_PAIEMENT_RECETTE;
+  else liste = Array.from(new Set(MOYENS_PAIEMENT_DEPENSE.concat(MOYENS_PAIEMENT_RECETTE)));
+
+  const sel = $('livre-moyen');
+  const valeurActuelle = state.livre.moyen;
+  sel.innerHTML = '<option value="tous">Tous</option>';
+  liste.forEach(function(m){
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  sel.value = liste.indexOf(valeurActuelle) !== -1 ? valeurActuelle : 'tous';
+  state.livre.moyen = sel.value;
+}
+
+$('livre-annee').addEventListener('change', function(){ state.livre.annee = this.value; renderLivre(); });
+$('livre-type').addEventListener('change', function(){
+  state.livre.type = this.value;
+  remplirLivreActivites();
+  remplirLivreMoyens();
+  renderLivre();
+});
+$('livre-activite').addEventListener('change', function(){ state.livre.activite = this.value; renderLivre(); });
+$('livre-moyen').addEventListener('change', function(){ state.livre.moyen = this.value; renderLivre(); });
+$('livre-recherche').addEventListener('input', function(){ state.livre.recherche = this.value.trim().toLowerCase(); renderLivre(); });
+
+document.querySelectorAll('table.livre th').forEach(function(th){
+  th.addEventListener('click', function(){
+    const champ = th.dataset.champ;
+    if (state.livre.triChamp === champ) {
+      state.livre.triSens = state.livre.triSens === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.livre.triChamp = champ;
+      state.livre.triSens = 'asc';
+    }
+    renderLivre();
+  });
+});
+
+function renderLivre() {
+  remplirLivreAnnees();
+  remplirLivreActivites();
+  remplirLivreMoyens();
+  $('livre-type').value = state.livre.type;
+
+  let lignes = state.transactions.filter(function(t){
+    if (state.livre.annee !== 'toutes' && (t.date || '').slice(0, 4) !== state.livre.annee) return false;
+    if (state.livre.type !== 'tout' && t.type !== state.livre.type) return false;
+    if (state.livre.activite !== 'toutes' && t.activite !== state.livre.activite) return false;
+    if (state.livre.moyen !== 'tous' && t.moyenPaiement !== state.livre.moyen) return false;
+    if (state.livre.recherche && (t.libelle || '').toLowerCase().indexOf(state.livre.recherche) === -1) return false;
+    return true;
+  });
+
+  const champ = state.livre.triChamp, sens = state.livre.triSens;
+  lignes = lignes.slice().sort(function(a, b){
+    let va = a[champ], vb = b[champ];
+    if (champ === 'montant') { va = Number(va) || 0; vb = Number(vb) || 0; }
+    else { va = (va || '').toString(); vb = (vb || '').toString(); }
+    let cmp = va < vb ? -1 : (va > vb ? 1 : 0);
+    return sens === 'asc' ? cmp : -cmp;
+  });
+
+  document.querySelectorAll('table.livre th').forEach(function(th){
+    th.classList.toggle('tri-actif', th.dataset.champ === champ);
+    const base = th.textContent.replace(/ [▲▼]$/, '');
+    th.textContent = base + (th.dataset.champ === champ ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
+  });
+
+  let totalIn = 0, totalOut = 0;
+  lignes.forEach(function(t){
+    if (t.type === 'recette') totalIn += Number(t.montant) || 0;
+    else totalOut += Number(t.montant) || 0;
+  });
+  const net = totalIn - totalOut;
+  $('livre-total-label').textContent = lignes.length + (lignes.length > 1 ? ' TRANSACTIONS' : ' TRANSACTION');
+  const totalEl = $('livre-total-montant');
+  totalEl.textContent = formatMoney(net);
+  totalEl.classList.toggle('negative', net < 0);
+  $('livre-total-in').textContent = '+ ' + formatMoney(totalIn);
+  $('livre-total-out').textContent = '− ' + formatMoney(totalOut);
+
+  const tbody = $('livre-tbody');
+  tbody.innerHTML = '';
+  $('livre-empty').classList.toggle('hidden', lignes.length > 0);
+
+  lignes.forEach(function(t){
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.innerHTML =
+      '<td>' + escHtml(t.numero || '') + '</td>' +
+      '<td>' + formatDateShort(t.date) + '</td>' +
+      '<td>' + escHtml(t.moyenPaiement || '') + '</td>' +
+      '<td>' + escHtml(t.libelle || '') + '</td>' +
+      '<td>' + escHtml(t.activite || '') + '</td>' +
+      '<td>' + escHtml(t.sousActivite || '') + '</td>' +
+      '<td class="montant ' + t.type + '">' + (t.type === 'recette' ? '+' : '−') + ' ' + formatMoney(t.montant) + '</td>';
+    tr.addEventListener('click', function(){ ouvrirModalTransaction(t); });
+    tbody.appendChild(tr);
   });
 }
 

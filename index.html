@@ -256,8 +256,16 @@
     padding: 6px 0 6px 12px; border-top: 1px solid var(--rule); margin-top: 8px;
   }
   .bilan-ligne:first-of-type { margin-top: 10px; }
-  .bilan-comparaison { color: var(--ink-soft); font-size: 11px; font-weight: 400; margin-left: 6px; }
-  .bilan-bloc-header .bilan-comparaison { font-size: 11px; }
+  .bilan-comparaison {
+    display: inline-block; min-width: 58px; margin-left: 8px; padding: 2px 7px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-align: right;
+    color: var(--ink-soft); background: var(--paper); border: 1px solid var(--rule); border-radius: 5px;
+  }
+  .bilan-bloc-header .bilan-comparaison { font-size: 11px; font-weight: 500; }
+
+  .bilan-comparatif-entete { display: flex; }
+  .bilan-comparatif-col { flex: 1; text-align: center; }
+  .bilan-comparatif-col + .bilan-comparatif-col { border-left: 1px solid var(--rule); }
 
   @media (min-width: 700px) {
     .bilan-annuel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
@@ -614,7 +622,7 @@
     <section id="view-bilan" class="view">
       <div class="type-switch" style="margin-bottom:14px;">
         <button type="button" class="active" id="bilan-toggle-livre">📒 Livre de compte</button>
-        <button type="button" id="bilan-toggle-annuel">📊 Bilan annuel</button>
+        <button type="button" id="bilan-toggle-annuel">📊 Bilan année</button>
       </div>
 
       <div id="bilan-vue-livre">
@@ -686,12 +694,24 @@
           <div id="bilan-annuel-export-status" class="tx-meta"></div>
         </div>
 
-        <div class="card balance-card">
-          <div class="balance-label">Solde de l'année</div>
-          <div class="balance-amount" id="bilan-annuel-solde" style="font-size:32px;">0,00 €</div>
-          <div class="balance-sub">
-            <span class="in" id="bilan-annuel-total-recettes">+ 0,00 €</span>
-            <span class="out" id="bilan-annuel-total-depenses">− 0,00 €</span>
+        <div class="card">
+          <div class="bilan-comparatif-entete">
+            <div class="bilan-comparatif-col">
+              <div class="balance-label" id="bilan-annuel-label-principal">Année</div>
+              <div class="balance-amount" id="bilan-annuel-solde" style="font-size:26px;">0,00 €</div>
+              <div class="balance-sub">
+                <span class="in" id="bilan-annuel-total-recettes">+ 0,00 €</span>
+                <span class="out" id="bilan-annuel-total-depenses">− 0,00 €</span>
+              </div>
+            </div>
+            <div class="bilan-comparatif-col hidden" id="bilan-annuel-col-comparaison">
+              <div class="balance-label" id="bilan-annuel-label-comparaison">Comparaison</div>
+              <div class="balance-amount" id="bilan-annuel-solde-comparaison" style="font-size:26px;">0,00 €</div>
+              <div class="balance-sub">
+                <span class="in" id="bilan-annuel-total-recettes-comparaison">+ 0,00 €</span>
+                <span class="out" id="bilan-annuel-total-depenses-comparaison">− 0,00 €</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1504,14 +1524,14 @@ function construireLigneBloc(bloc, indexComp, anneeComp) {
   const compBloc = indexComp ? indexComp[bloc.activite] : null;
   const compTotal = compBloc ? compBloc.total : null;
   const compHtml = anneeComp && compTotal !== null
-    ? '<span class="bilan-comparaison">' + formatMoney(compTotal) + ' (' + escHtml(anneeComp) + ')</span>' : '';
+    ? '<span class="bilan-comparaison">' + formatMoney(compTotal) + '</span>' : '';
   let html = '<div class="bilan-bloc-header"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + compHtml + '</span></div>';
   if (bloc.sousActivites.length === 0) {
     html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';
   } else {
     bloc.sousActivites.forEach(function(s){
       const compVal = (anneeComp && compBloc && compBloc.parSous[s.nom] !== undefined) ? compBloc.parSous[s.nom] : null;
-      const compLigne = compVal !== null ? '<span class="bilan-comparaison">' + formatMoney(compVal) + ' (' + escHtml(anneeComp) + ')</span>' : '';
+      const compLigne = compVal !== null ? '<span class="bilan-comparaison">' + formatMoney(compVal) + '</span>' : '';
       html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + compLigne + '</span></div>';
     });
   }
@@ -1541,11 +1561,22 @@ function renderBilanAnnuelEcran() {
   const indexDepComp = dataComp ? indexerBilan(dataComp.depenses) : null;
   const indexRecComp = dataComp ? indexerBilan(dataComp.recettes) : null;
 
+  $('bilan-annuel-label-principal').textContent = 'Année ' + annee;
   const soldeEl = $('bilan-annuel-solde');
   soldeEl.textContent = formatMoney(data.solde);
   soldeEl.classList.toggle('negative', data.solde < 0);
-  $('bilan-annuel-total-recettes').textContent = '+ ' + formatMoney(data.totalRecettes) + (dataComp ? ' (' + formatMoney(dataComp.totalRecettes) + ' en ' + anneeComp + ')' : '');
-  $('bilan-annuel-total-depenses').textContent = '− ' + formatMoney(data.totalDepenses) + (dataComp ? ' (' + formatMoney(dataComp.totalDepenses) + ' en ' + anneeComp + ')' : '');
+  $('bilan-annuel-total-recettes').textContent = '+ ' + formatMoney(data.totalRecettes);
+  $('bilan-annuel-total-depenses').textContent = '− ' + formatMoney(data.totalDepenses);
+
+  $('bilan-annuel-col-comparaison').classList.toggle('hidden', !dataComp);
+  if (dataComp) {
+    $('bilan-annuel-label-comparaison').textContent = 'Année ' + anneeComp;
+    const soldeCompEl = $('bilan-annuel-solde-comparaison');
+    soldeCompEl.textContent = formatMoney(dataComp.solde);
+    soldeCompEl.classList.toggle('negative', dataComp.solde < 0);
+    $('bilan-annuel-total-recettes-comparaison').textContent = '+ ' + formatMoney(dataComp.totalRecettes);
+    $('bilan-annuel-total-depenses-comparaison').textContent = '− ' + formatMoney(dataComp.totalDepenses);
+  }
 
   const depensesParNom = {};
   data.depenses.forEach(function(b){ depensesParNom[b.activite] = b; });

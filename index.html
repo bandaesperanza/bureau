@@ -665,7 +665,7 @@
             <button class="btn btn-secondary" id="btn-bilan-export-excel" style="width:auto; flex:1;">📤 Excel</button>
             <button class="btn btn-secondary" id="btn-bilan-export-pdf" style="width:auto; flex:1;">📄 PDF</button>
           </div>
-          <div class="tx-meta" style="margin-top:8px;">Envoyé dans Drive (03 - Trésorerie / année / 09-Comptabilité).</div>
+          <div class="tx-meta" style="margin-top:8px;">Envoyé dans Drive (03 - Trésorerie / année / 05-Bilan Fin d'année).</div>
           <div id="bilan-annuel-export-status" class="tx-meta"></div>
         </div>
 
@@ -1894,7 +1894,7 @@ function exporterBilanAnnuel(format) {
       : chargerLibPDF().then(function(){ return chargerLogoBase64(); }).then(function(logo){ return genererPDFBilanAnnuel(data, logo); });
   }).then(function(blob){
     statusEl.textContent = 'Envoi vers Drive…';
-    return obtenirDossierComptabiliteAnnee(annee).then(function(folderId){
+    return obtenirDossierBilanAnnee(annee).then(function(folderId){
       const nomFichier = 'BilanAnnuel_' + annee + (format === 'xlsx' ? '.xlsx' : '.pdf');
       const mime = format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf';
       return uploaderFichierDrive(blob, nomFichier, folderId, mime);
@@ -2206,6 +2206,11 @@ function trouverOuCreerDossier(nom, parentId) {
 function obtenirDossierComptabiliteAnnee(annee) {
   return trouverOuCreerDossier(String(annee), DRIVE_RACINE_ID)
     .then(function(anneeId){ return trouverOuCreerDossier(DRIVE_SOUS_DOSSIER_COMPTA, anneeId); });
+}
+
+function obtenirDossierBilanAnnee(annee) {
+  return trouverOuCreerDossier(String(annee), DRIVE_RACINE_ID)
+    .then(function(anneeId){ return trouverOuCreerDossier("05-Bilan Fin d'année", anneeId); });
 }
 
 function obtenirDossierActivite(type, activite, annee) {

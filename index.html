@@ -1531,93 +1531,153 @@ function chargerLibPDF() {
 function genererExcelBilanAnnuel(data) {
   const classeur = new ExcelJS.Workbook();
   classeur.creator = 'Trésorerie Banda Esperanza';
-  const feuille = classeur.addWorksheet('Bilan ' + data.annee, { views: [{ state: 'frozen', ySplit: 1 }] });
-
-  feuille.columns = [{ width: 42 }, { width: 16 }];
+  const feuille = classeur.addWorksheet('Bilan ' + data.annee, { views: [{ state: 'frozen', ySplit: 8 }] });
+  feuille.columns = [{ width: 34 }, { width: 14 }, { width: 3 }, { width: 34 }, { width: 14 }];
 
   const COULEUR_MARQUE = 'FF2A2560';
   const COULEUR_DEPENSE = 'FFC4302A';
   const COULEUR_DEPENSE_CLAIR = 'FFF5E1DE';
   const COULEUR_RECETTE = 'FF2E7D4E';
   const COULEUR_RECETTE_CLAIR = 'FFE4F1E7';
+  const COULEUR_FILET = 'FFAAA4B2';
   const BLANC = 'FFFFFFFF';
+  const GRIS = 'FF787878';
+  const GRIS_ITALIQUE = 'FF969696';
 
-  function styleTitre(cellule, texte, couleurFond) {
-    cellule.value = texte;
-    cellule.font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
-    cellule.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: couleurFond } };
-    cellule.alignment = { vertical: 'middle' };
+  const depensesParNom = {};
+  data.depenses.forEach(function(b){ depensesParNom[b.activite] = b; });
+  const recettesParNom = {};
+  data.recettes.forEach(function(b){ recettesParNom[b.activite] = b; });
+
+  // --- Construction des deux colonnes de descripteurs (même logique que le PDF) ---
+  function descripteursBloc(bloc, fond, estPremiere) {
+    const lignes = [{ type: 'entete', texte: bloc.activite, montant: bloc.total, fond: fond, filet: !estPremiere }];
+    if (bloc.sousActivites.length === 0) {
+      lignes.push({ type: 'aucune' });
+    } else {
+      bloc.sousActivites.forEach(function(s){ lignes.push({ type: 'normal', texte: s.nom, montant: s.total }); });
+    }
+    return lignes;
   }
-
-  function ligneSection(nom, couleurFond) {
-    const ligne = feuille.addRow([nom, null]);
-    ligne.height = 20;
-    feuille.mergeCells(ligne.number, 1, ligne.number, 2);
-    styleTitre(ligne.getCell(1), nom, couleurFond);
-  }
-
-  function ligneEnTeteColonnes() {
-    const ligne = feuille.addRow(['Catégorie / Sous-catégorie', 'Montant']);
-    ligne.eachCell(function(c){
-      c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF5B5770' } };
-      c.border = { bottom: { style: 'thin', color: { argb: 'FFDCD5DE' } } };
+  function descripteursPourNoms(noms, parNom, fond) {
+    let out = [];
+    let premiere = true;
+    noms.forEach(function(nom){
+      const bloc = parNom[nom];
+      if (!bloc) return;
+      out = out.concat(descripteursBloc(bloc, fond, premiere));
+      premiere = false;
     });
+    return out;
   }
+  const VIDE = { type: 'vide' };
 
-  function ligneActivite(nom, montant, couleurTexte) {
-    const ligne = feuille.addRow([nom, montant]);
-    ligne.getCell(1).font = { name: 'Calibri', size: 10, bold: true };
-    ligne.getCell(2).font = { name: 'Calibri', size: 10, bold: true, color: { argb: couleurTexte } };
-    ligne.getCell(2).numFmt = '#,##0.00 €';
-    ligne.getCell(2).alignment = { horizontal: 'right' };
-  }
+  let colDep = descripteursPourNoms(GROUPE_DEPENSE_SANS_EQUIVALENT, depensesParNom, COULEUR_DEPENSE_CLAIR);
+  let colRec = descripteursPourNoms(GROUPE_RECETTE_SANS_EQUIVALENT, recettesParNom, COULEUR_RECETTE_CLAIR);
+  while (colDep.length < colRec.length) colDep.push(VIDE);
+  while (colRec.length < colDep.length) colRec.push(VIDE);
 
-  function ligneSousActivite(nom, montant) {
-    const ligne = feuille.addRow(['     ' + nom, montant]);
-    ligne.getCell(1).font = { name: 'Calibri', size: 10, color: { argb: 'FF5B5770' } };
-    ligne.getCell(2).font = { name: 'Calibri', size: 10, color: { argb: 'FF5B5770' } };
-    ligne.getCell(2).numFmt = '#,##0.00 €';
-    ligne.getCell(2).alignment = { horizontal: 'right' };
-  }
+  PAIRES_BILAN.forEach(function(paire){
+    const blocDep = paire[0] ? depensesParNom[paire[0]] : null;
+    const blocRec = paire[1] ? recettesParNom[paire[1]] : null;
+    const ld = blocDep ? descripteursBloc(blocDep, COULEUR_DEPENSE_CLAIR, false) : [];
+    const lr = blocRec ? descripteursBloc(blocRec, COULEUR_RECETTE_CLAIR, false) : [];
+    colDep = colDep.concat(ld);
+    colRec = colRec.concat(lr);
+    while (colDep.length < colRec.length) colDep.push(VIDE);
+    while (colRec.length < colDep.length) colRec.push(VIDE);
+  });
 
-  // Titre
-  const ligneTitre = feuille.addRow(['Bilan annuel ' + data.annee + ' — Banda Esperanza', null]);
-  ligneTitre.height = 26;
-  feuille.mergeCells(ligneTitre.number, 1, ligneTitre.number, 2);
-  styleTitre(ligneTitre.getCell(1), ligneTitre.getCell(1).value, COULEUR_MARQUE);
-  ligneTitre.getCell(1).font = { name: 'Calibri', size: 14, bold: true, color: { argb: BLANC } };
+  // --- En-tête du fichier ---
+  const ligneTitre = feuille.addRow(['Bilan annuel ' + data.annee, null, null, null, null]);
+  ligneTitre.height = 22;
+  feuille.mergeCells(ligneTitre.number, 1, ligneTitre.number, 5);
+  ligneTitre.getCell(1).font = { name: 'Calibri', size: 16, bold: true, color: { argb: COULEUR_MARQUE } };
+
+  const ligneSousTitre = feuille.addRow(['Banda Esperanza Tyrosse', null, null, null, null]);
+  feuille.mergeCells(ligneSousTitre.number, 1, ligneSousTitre.number, 5);
+  ligneSousTitre.getCell(1).font = { name: 'Calibri', size: 10, color: { argb: GRIS } };
+
   feuille.addRow([]);
 
-  // Dépenses
-  ligneSection('DÉPENSES', COULEUR_DEPENSE);
-  ligneEnTeteColonnes();
-  data.depenses.forEach(function(bloc){
-    ligneActivite(bloc.activite, bloc.total, COULEUR_DEPENSE);
-    bloc.sousActivites.forEach(function(s){ ligneSousActivite(s.nom, s.total); });
-  });
-  ligneActivite('TOTAL DÉPENSES', data.totalDepenses, COULEUR_DEPENSE);
+  // Bandeau résumé : Total dépenses / Total recettes côte à côte, puis Résultat en pleine largeur.
+  const ligneTotaux = feuille.addRow([]);
+  ligneTotaux.height = 20;
+  feuille.mergeCells(ligneTotaux.number, 1, ligneTotaux.number, 2);
+  feuille.mergeCells(ligneTotaux.number, 4, ligneTotaux.number, 5);
+  ligneTotaux.getCell(1).value = 'TOTAL DÉPENSES   ' + formatMoney(data.totalDepenses);
+  ligneTotaux.getCell(1).font = { name: 'Calibri', size: 11, bold: true, color: { argb: COULEUR_DEPENSE } };
+  ligneTotaux.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COULEUR_DEPENSE_CLAIR } };
+  ligneTotaux.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+  ligneTotaux.getCell(4).value = 'TOTAL RECETTES   ' + formatMoney(data.totalRecettes);
+  ligneTotaux.getCell(4).font = { name: 'Calibri', size: 11, bold: true, color: { argb: COULEUR_RECETTE } };
+  ligneTotaux.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COULEUR_RECETTE_CLAIR } };
+  ligneTotaux.getCell(4).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  const ligneResultat = feuille.addRow([]);
+  ligneResultat.height = 20;
+  feuille.mergeCells(ligneResultat.number, 1, ligneResultat.number, 5);
+  const couleurResultat = data.solde < 0 ? COULEUR_DEPENSE : COULEUR_RECETTE;
+  ligneResultat.getCell(1).value = 'RÉSULTAT   ' + formatMoney(data.solde);
+  ligneResultat.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
+  ligneResultat.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: couleurResultat } };
+  ligneResultat.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
   feuille.addRow([]);
 
-  // Recettes
-  ligneSection('RECETTES', COULEUR_RECETTE);
-  ligneEnTeteColonnes();
-  data.recettes.forEach(function(bloc){
-    ligneActivite(bloc.activite, bloc.total, COULEUR_RECETTE);
-    bloc.sousActivites.forEach(function(s){ ligneSousActivite(s.nom, s.total); });
-  });
-  ligneActivite('TOTAL RECETTES', data.totalRecettes, COULEUR_RECETTE);
-  feuille.addRow([]);
+  // Libellés "Dépenses" / "Recettes" centrés au-dessus de chaque colonne.
+  const ligneLabels = feuille.addRow([]);
+  feuille.mergeCells(ligneLabels.number, 1, ligneLabels.number, 2);
+  feuille.mergeCells(ligneLabels.number, 4, ligneLabels.number, 5);
+  ligneLabels.getCell(1).value = 'Dépenses';
+  ligneLabels.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: COULEUR_DEPENSE } };
+  ligneLabels.getCell(1).alignment = { horizontal: 'center' };
+  ligneLabels.getCell(4).value = 'Recettes';
+  ligneLabels.getCell(4).font = { name: 'Calibri', size: 12, bold: true, color: { argb: COULEUR_RECETTE } };
+  ligneLabels.getCell(4).alignment = { horizontal: 'center' };
 
-  // Résultat
-  const ligneSolde = feuille.addRow(['RÉSULTAT', data.solde]);
-  ligneSolde.height = 22;
-  ligneSolde.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
-  ligneSolde.getCell(2).font = { name: 'Calibri', size: 12, bold: true, color: { argb: BLANC } };
-  ligneSolde.eachCell(function(c){
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: data.solde < 0 ? COULEUR_DEPENSE : COULEUR_RECETTE } };
+  // En-tête de colonnes (première case volontairement vide).
+  const ligneEntetes = feuille.addRow(['', 'Montant', null, '', 'Montant']);
+  [1, 2, 4, 5].forEach(function(c){
+    const cell = ligneEntetes.getCell(c);
+    cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: BLANC } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COULEUR_MARQUE } };
+    if (c === 2 || c === 5) cell.alignment = { horizontal: 'right' };
   });
-  ligneSolde.getCell(2).numFmt = '#,##0.00 €';
-  ligneSolde.getCell(2).alignment = { horizontal: 'right' };
+
+  // --- Lignes de détail, colonne par colonne, alignées par index ---
+  function ecrireDescripteur(row, colTexte, colMontant, d) {
+    const cTexte = row.getCell(colTexte), cMontant = row.getCell(colMontant);
+    if (!d || d.type === 'vide') return;
+    if (d.type === 'aucune') {
+      cTexte.value = 'Aucune transaction';
+      cTexte.font = { name: 'Calibri', size: 9, italic: true, color: { argb: GRIS_ITALIQUE } };
+      return;
+    }
+    cTexte.value = d.texte;
+    cMontant.value = d.montant;
+    cMontant.numFmt = '#,##0.00 €';
+    cMontant.alignment = { horizontal: 'right' };
+    if (d.type === 'entete') {
+      cTexte.font = { name: 'Calibri', size: 9.5, bold: true };
+      cMontant.font = { name: 'Calibri', size: 9.5, bold: true };
+      cTexte.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: d.fond } };
+      cMontant.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: d.fond } };
+      if (d.filet) {
+        cTexte.border = { top: { style: 'thin', color: { argb: COULEUR_FILET } } };
+        cMontant.border = { top: { style: 'thin', color: { argb: COULEUR_FILET } } };
+      }
+    } else {
+      cTexte.font = { name: 'Calibri', size: 9 };
+      cMontant.font = { name: 'Calibri', size: 9 };
+    }
+  }
+
+  for (let i = 0; i < colDep.length; i++) {
+    const row = feuille.addRow([]);
+    ecrireDescripteur(row, 1, 2, colDep[i]);
+    ecrireDescripteur(row, 4, 5, colRec[i]);
+  }
 
   return classeur.xlsx.writeBuffer().then(function(buffer){
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

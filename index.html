@@ -244,7 +244,10 @@
   table.livre td.montant.recette { color: var(--green); }
 
   /* Bilan annuel */
+  .bilan-annuel-grid { display: block; }
   .bilan-bloc { margin-bottom: 10px; }
+  .bilan-bloc.depense { border-left: 3px solid var(--stamp); }
+  .bilan-bloc.recette { border-left: 3px solid var(--green); }
   .bilan-bloc-header { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
   .bilan-bloc-header.depense .bilan-bloc-montant { color: var(--stamp); }
   .bilan-bloc-header.recette .bilan-bloc-montant { color: var(--green); }
@@ -253,6 +256,10 @@
     padding: 6px 0 6px 12px; border-top: 1px solid var(--rule); margin-top: 8px;
   }
   .bilan-ligne:first-of-type { margin-top: 10px; }
+
+  @media (min-width: 700px) {
+    .bilan-annuel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
+  }
 
   /* Formulaires */
   label.field-label {
@@ -671,11 +678,16 @@
           </div>
         </div>
 
-        <div class="section-title">Dépenses</div>
-        <div id="bilan-annuel-depenses"></div>
-
-        <div class="section-title">Recettes</div>
-        <div id="bilan-annuel-recettes"></div>
+        <div class="bilan-annuel-grid">
+          <div>
+            <div class="section-title">Dépenses</div>
+            <div id="bilan-annuel-depenses"></div>
+          </div>
+          <div>
+            <div class="section-title">Recettes</div>
+            <div id="bilan-annuel-recettes"></div>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -1434,7 +1446,7 @@ function renderBlocsBilan(containerId, blocs, type) {
   el.innerHTML = '';
   blocs.forEach(function(bloc){
     const carte = document.createElement('div');
-    carte.className = 'card bilan-bloc';
+    carte.className = 'card bilan-bloc ' + type;
     let html = '<div class="bilan-bloc-header ' + type + '"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
     if (bloc.sousActivites.length === 0) {
       html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';

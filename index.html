@@ -1624,16 +1624,40 @@ function genererExcelBilanAnnuel(data) {
   });
 }
 
+// Format monétaire dédié au PDF : jsPDF avec les polices de base rend mal
+// l'espace insécable utilisé par toLocaleString('fr-FR') pour les milliers
+// (glyphe absent → caractère cassé). On utilise un espace normal à la place.
+function formatMoneyPDF(n) {
+  const val = Number(n) || 0;
+  const negatif = val < 0;
+  const fixe = Math.abs(val).toFixed(2).replace('.', ',');
+  const parts = fixe.split(',');
+  let entier = parts[0];
+  let groupe = '';
+  while (entier.length > 3) {
+    groupe = ' ' + entier.slice(-3) + groupe;
+    entier = entier.slice(0, -3);
+  }
+  entier += groupe;
+  return (negatif ? '-' : '') + entier + ',' + parts[1] + ' €';
+}
+
 function genererPDFBilanAnnuel(data, logoDataUrl) {
   const jsPDF = window.jspdf.jsPDF;
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const marge = 14;
-  let y = 20;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+  const largeurPage = doc.internal.pageSize.getWidth();
+  const hauteurPage = doc.internal.pageSize.getHeight();
+  const marge = 12;
+  const ecart = 8;
+  const largeurCol = (largeurPage - marge * 2 - ecart) / 2;
+  const xGauche = marge;
+  const xDroite = marge + largeurCol + ecart;
+  let y = 18;
 
   if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, marge, 10, 16, 16); } catch (e) { /* format image non géré, on ignore */ }
+    try { doc.addImage(logoDataUrl, marge, 8, 14, 14); } catch (e) { /* format image non géré, on ignore */ }
   }
-  const decalageTitre = logoDataUrl ? marge + 20 : marge;
+  const decalageTitre = logoDataUrl ? marge + 18 : marge;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
@@ -1643,73 +1667,74 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
   doc.setFontSize(11);
   doc.setTextColor(120, 120, 120);
   doc.text('Banda Esperanza Tyrosse', decalageTitre, y + 6);
-  y += 20;
+  y += 16;
   doc.setDrawColor(220, 213, 222);
-  doc.line(marge, y - 6, 210 - marge, y - 6);
+  doc.line(marge, y - 5, largeurPage - marge, y - 5);
+
+  // Bandeau résumé : 3 cases côte à côte (dépenses / recettes / solde),
+  // façon tableau de bord — avant le détail, comme un vrai en-tête de bilan.
+  const couleurSolde = data.solde < 0 ? [196, 48, 42] : [46, 125, 78];
+  doc.autoTable({
+    startY: y,
+    margin: { left: marge, right: marge },
+    body: [[
+      { content: 'TOTAL DÉPENSES\n' + formatMoneyPDF(data.totalDepenses), styles: { fontStyle: 'bold', fillColor: [245, 225, 222], textColor: [196, 48, 42], halign: 'center', fontSize: 11, cellPadding: 4 } },
+      { content: 'TOTAL RECETTES\n' + formatMoneyPDF(data.totalRecettes), styles: { fontStyle: 'bold', fillColor: [228, 241, 231], textColor: [46, 125, 78], halign: 'center', fontSize: 11, cellPadding: 4 } },
+      { content: 'SOLDE\n' + formatMoneyPDF(data.solde), styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255, halign: 'center', fontSize: 11, cellPadding: 4 } }
+    ]],
+    theme: 'plain',
+    styles: { font: 'helvetica', lineWidth: 0 }
+  });
+  y = doc.lastAutoTable.finalY + 8;
 
   function ligneBloc(bloc, fond) {
-    const lignes = [[{ content: bloc.activite, styles: { fontStyle: 'bold', fillColor: fond } }, { content: formatMoney(bloc.total), styles: { fontStyle: 'bold', fillColor: fond, halign: 'right' } }]];
+    const lignes = [[{ content: bloc.activite, styles: { fontStyle: 'bold', fillColor: fond } }, { content: formatMoneyPDF(bloc.total), styles: { fontStyle: 'bold', fillColor: fond, halign: 'right' } }]];
     if (bloc.sousActivites.length === 0) {
       lignes.push([{ content: 'Aucune transaction', styles: { fontStyle: 'italic', textColor: [150, 150, 150] } }, '']);
     } else {
       bloc.sousActivites.forEach(function(s){
-        lignes.push([s.nom, { content: formatMoney(s.total), styles: { halign: 'right' } }]);
+        lignes.push([s.nom, { content: formatMoneyPDF(s.total), styles: { halign: 'right' } }]);
       });
     }
     return lignes;
   }
 
+  const yDepart = y;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(196, 48, 42);
-  doc.text('Dépenses', marge, y);
-  y += 2;
+  doc.text('Dépenses', xGauche, y);
+  doc.setTextColor(46, 125, 78);
+  doc.text('Recettes', xDroite, y);
+  y += 3;
+
   let corpsDepenses = [];
   data.depenses.forEach(function(bloc){ corpsDepenses = corpsDepenses.concat(ligneBloc(bloc, [245, 225, 222])); });
   doc.autoTable({
-    startY: y, margin: { left: marge, right: marge },
+    startY: y, margin: { left: xGauche }, tableWidth: largeurCol,
     head: [['Catégorie / Sous-catégorie', 'Montant']],
     body: corpsDepenses, theme: 'striped',
     alternateRowStyles: { fillColor: [250, 248, 246] },
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.4, lineColor: [220, 213, 222], lineWidth: 0.1 },
-    headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 1: { halign: 'right', cellWidth: 32 } }
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2.2, lineColor: [220, 213, 222], lineWidth: 0.1, overflow: 'linebreak' },
+    headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: { 0: { cellWidth: largeurCol - 28 }, 1: { halign: 'right', cellWidth: 28 } }
   });
-  y = doc.lastAutoTable.finalY + 10;
+  const finDepenses = doc.lastAutoTable.finalY;
 
-  if (y > 245) { doc.addPage(); y = 20; }
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(46, 125, 78);
-  doc.text('Recettes', marge, y);
-  y += 2;
   let corpsRecettes = [];
   data.recettes.forEach(function(bloc){ corpsRecettes = corpsRecettes.concat(ligneBloc(bloc, [228, 241, 231])); });
   doc.autoTable({
-    startY: y, margin: { left: marge, right: marge },
+    startY: yDepart + 3, margin: { left: xDroite }, tableWidth: largeurCol,
     head: [['Catégorie / Sous-catégorie', 'Montant']],
     body: corpsRecettes, theme: 'striped',
     alternateRowStyles: { fillColor: [248, 250, 249] },
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.4, lineColor: [220, 213, 222], lineWidth: 0.1 },
-    headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 1: { halign: 'right', cellWidth: 32 } }
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2.2, lineColor: [220, 213, 222], lineWidth: 0.1, overflow: 'linebreak' },
+    headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: { 0: { cellWidth: largeurCol - 28 }, 1: { halign: 'right', cellWidth: 28 } }
   });
-  y = doc.lastAutoTable.finalY + 10;
+  const finRecettes = doc.lastAutoTable.finalY;
 
-  if (y > 250) { doc.addPage(); y = 20; }
-  const couleurSolde = data.solde < 0 ? [196, 48, 42] : [46, 125, 78];
-  doc.autoTable({
-    startY: y, margin: { left: marge, right: marge },
-    body: [
-      ['Total dépenses', formatMoney(data.totalDepenses)],
-      ['Total recettes', formatMoney(data.totalRecettes)],
-      [{ content: 'Solde', styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255 } },
-       { content: formatMoney(data.solde), styles: { fontStyle: 'bold', fillColor: couleurSolde, textColor: 255, halign: 'right' } }]
-    ],
-    theme: 'grid',
-    styles: { font: 'helvetica', fontSize: 10.5, cellPadding: 3.5 },
-    columnStyles: { 1: { halign: 'right', cellWidth: 32 } }
-  });
+  y = Math.max(finDepenses, finRecettes) + 4;
 
   // Pied de page : mention + numéro de page, sur chaque page.
   const totalPages = doc.internal.getNumberOfPages();
@@ -1718,8 +1743,8 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text('Banda Esperanza Tyrosse — Bilan annuel ' + data.annee, marge, 290);
-    doc.text('Page ' + i + ' / ' + totalPages, 210 - marge, 290, { align: 'right' });
+    doc.text('Banda Esperanza Tyrosse — Bilan annuel ' + data.annee, marge, hauteurPage - 8);
+    doc.text('Page ' + i + ' / ' + totalPages, largeurPage - marge, hauteurPage - 8, { align: 'right' });
   }
 
   return doc.output('blob');

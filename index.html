@@ -1706,7 +1706,11 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
     return lignes;
   }
 
-  const yDepart = y;
+  const depensesParNom = {};
+  data.depenses.forEach(function(b){ depensesParNom[b.activite] = b; });
+  const recettesParNom = {};
+  data.recettes.forEach(function(b){ recettesParNom[b.activite] = b; });
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(196, 48, 42);
@@ -1721,27 +1725,48 @@ function genererPDFBilanAnnuel(data, logoDataUrl) {
     headStyles: { fillColor: [42, 37, 96], textColor: 255, fontStyle: 'bold', fontSize: 6.8, lineWidth: 0 }
   };
 
-  let corpsDepenses = [];
-  data.depenses.forEach(function(bloc, i){ corpsDepenses = corpsDepenses.concat(ligneBloc(bloc, [245, 225, 222], i === 0)); });
-  doc.autoTable(Object.assign({
-    startY: y, margin: { left: xGauche }, tableWidth: largeurCol,
-    head: [['Catégorie / Sous-catégorie', 'Montant']],
-    body: corpsDepenses,
-    columnStyles: { 0: { cellWidth: largeurCol - 24 }, 1: { halign: 'right', cellWidth: 24 } }
-  }, STYLE_TABLE));
-  const finDepenses = doc.lastAutoTable.finalY;
+  // Dessine une table pour une colonne (dépense ou recette) à une position Y
+  // donnée, avec ou sans en-tête de colonnes, et renvoie le Y de fin.
+  function dessinerColonne(startY, x, corps, avecEntete) {
+    if (corps.length === 0) return startY;
+    const opts = Object.assign({
+      startY: startY, margin: { left: x }, tableWidth: largeurCol,
+      body: corps,
+      columnStyles: { 0: { cellWidth: largeurCol - 24 }, 1: { halign: 'right', cellWidth: 24 } }
+    }, STYLE_TABLE);
+    if (avecEntete) opts.head = [['Catégorie / Sous-catégorie', 'Montant']];
+    doc.autoTable(opts);
+    return doc.lastAutoTable.finalY;
+  }
 
-  let corpsRecettes = [];
-  data.recettes.forEach(function(bloc, i){ corpsRecettes = corpsRecettes.concat(ligneBloc(bloc, [228, 241, 231], i === 0)); });
-  doc.autoTable(Object.assign({
-    startY: yDepart + 3, margin: { left: xDroite }, tableWidth: largeurCol,
-    head: [['Catégorie / Sous-catégorie', 'Montant']],
-    body: corpsRecettes,
-    columnStyles: { 0: { cellWidth: largeurCol - 24 }, 1: { halign: 'right', cellWidth: 24 } }
-  }, STYLE_TABLE));
-  const finRecettes = doc.lastAutoTable.finalY;
+  function corpsPourNoms(noms, parNom, fond) {
+    let corps = [];
+    let premiere = true;
+    noms.forEach(function(nom){
+      const bloc = parNom[nom];
+      if (!bloc) return;
+      corps = corps.concat(ligneBloc(bloc, fond, premiere));
+      premiere = false;
+    });
+    return corps;
+  }
 
-  y = Math.max(finDepenses, finRecettes) + 4;
+  // Groupe 1 : Local/Fonctionnement/Instruments (3 pavés) face à
+  // Contrats/Subventions (2 pavés) — même logique que l'écran Bilan annuel.
+  const finDep1 = dessinerColonne(y, xGauche, corpsPourNoms(GROUPE_DEPENSE_SANS_EQUIVALENT, depensesParNom, [245, 225, 222]), true);
+  const finRec1 = dessinerColonne(y, xDroite, corpsPourNoms(GROUPE_RECETTE_SANS_EQUIVALENT, recettesParNom, [228, 241, 231]), true);
+  let yCommun = Math.max(finDep1, finRec1);
+
+  // Groupes alignés 1:1 : Animation, Sainte Cécile, Diverses, Bodega.
+  PAIRES_BILAN.forEach(function(paire){
+    const blocDep = paire[0] ? depensesParNom[paire[0]] : null;
+    const blocRec = paire[1] ? recettesParNom[paire[1]] : null;
+    const finDep = blocDep ? dessinerColonne(yCommun, xGauche, ligneBloc(blocDep, [245, 225, 222], false), false) : yCommun;
+    const finRec = blocRec ? dessinerColonne(yCommun, xDroite, ligneBloc(blocRec, [228, 241, 231], false), false) : yCommun;
+    yCommun = Math.max(finDep, finRec);
+  });
+
+  y = yCommun + 4;
 
   // Pied de page : mention + numéro de page, sur chaque page.
   const totalPages = doc.internal.getNumberOfPages();
@@ -1780,22 +1805,23 @@ function exporterBilanAnnuel(format) {
   const annee = $('bilan-annuel-annee').value;
   const data = calculerBilanAnnuel(annee);
   const statusEl = $('bilan-annuel-export-status');
-  statusEl.textContent = 'Préparation…';
+  statusEl.textContent = 'Connexion Drive…';
 
-  const preparation = format === 'xlsx'
-    ? chargerLibExcelJS().then(function(){ return genererExcelBilanAnnuel(data); })
-    : chargerLibPDF().then(function(){ return chargerLogoBase64(); }).then(function(logo){ return genererPDFBilanAnnuel(data, logo); });
-
-  preparation.then(function(blob){
-    statusEl.textContent = 'Connexion Drive…';
-    return ensureDriveConnecte().then(function(ok){
-      if (!ok) throw new Error('Connexion Drive nécessaire.');
-      statusEl.textContent = 'Envoi vers Drive…';
-      return obtenirDossierComptabiliteAnnee(annee).then(function(folderId){
-        const nomFichier = 'BilanAnnuel_' + annee + (format === 'xlsx' ? '.xlsx' : '.pdf');
-        const mime = format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf';
-        return uploaderFichierDrive(blob, nomFichier, folderId, mime);
-      });
+  // Connexion Drive déclenchée EN PREMIER, tout de suite au clic (geste
+  // utilisateur encore valide) — le PDF charge 2 scripts + le logo en
+  // asynchrone ensuite, ce qui périme le geste si Drive n'est pas déjà connecté.
+  ensureDriveConnecte().then(function(ok){
+    if (!ok) throw new Error('Connexion Drive nécessaire.');
+    statusEl.textContent = 'Préparation…';
+    return format === 'xlsx'
+      ? chargerLibExcelJS().then(function(){ return genererExcelBilanAnnuel(data); })
+      : chargerLibPDF().then(function(){ return chargerLogoBase64(); }).then(function(logo){ return genererPDFBilanAnnuel(data, logo); });
+  }).then(function(blob){
+    statusEl.textContent = 'Envoi vers Drive…';
+    return obtenirDossierComptabiliteAnnee(annee).then(function(folderId){
+      const nomFichier = 'BilanAnnuel_' + annee + (format === 'xlsx' ? '.xlsx' : '.pdf');
+      const mime = format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf';
+      return uploaderFichierDrive(blob, nomFichier, folderId, mime);
     });
   }).then(function(){
     statusEl.textContent = 'Export ' + format.toUpperCase() + ' envoyé vers Drive.';
@@ -2534,7 +2560,7 @@ $('btn-export-grandlivre').addEventListener('click', function(){
   const btn = $('btn-export-grandlivre');
   const statusEl = $('export-status');
   btn.disabled = true;
-  statusEl.textContent = 'Préparation…';
+  statusEl.textContent = 'Connexion Drive…';
 
   const lignesTx = state.transactions
     .filter(function(t){ return (t.date || '').slice(0, 4) === annee; })
@@ -2550,15 +2576,18 @@ $('btn-export-grandlivre').addEventListener('click', function(){
     return;
   }
 
-  chargerLibExcelJS().then(function(){
-    return genererExcelGrandLivre(annee, lignesTx);
+  // Connexion Drive déclenchée EN PREMIER, tout de suite au clic (geste
+  // utilisateur encore valide) — sinon, après le chargement asynchrone de la
+  // librairie Excel, le geste est "périmé" et la popup Google échoue.
+  ensureDriveConnecte().then(function(ok){
+    if (!ok) throw new Error('Connexion Drive nécessaire.');
+    statusEl.textContent = 'Préparation…';
+    return chargerLibExcelJS().then(function(){
+      return genererExcelGrandLivre(annee, lignesTx);
+    });
   }).then(function(blob){
-    statusEl.textContent = 'Connexion Drive…';
-    return ensureDriveConnecte().then(function(ok){
-      if (!ok) throw new Error('Connexion Drive nécessaire.');
-      statusEl.textContent = 'Envoi vers Drive…';
-      return obtenirDossierComptabiliteAnnee(annee);
-    }).then(function(folderId){
+    statusEl.textContent = 'Envoi vers Drive…';
+    return obtenirDossierComptabiliteAnnee(annee).then(function(folderId){
       return uploaderFichierDrive(blob, 'GrandLivre_' + annee + '.xlsx', folderId, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     });
   }).then(function(){

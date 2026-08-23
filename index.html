@@ -168,6 +168,22 @@
     box-sizing: border-box;
   }
 
+  /* ---------- Adaptation iPad / grand écran ----------
+     Mobile-first par défaut ; on élargit progressivement le contenu au lieu
+     de le laisser figé dans une colonne étroite au milieu d'un grand écran. */
+  @media (min-width: 700px) {
+    main { max-width: 820px; padding: 22px 24px 90px; }
+    .card { padding: 20px 24px; }
+    .balance-amount { font-size: 44px; }
+    .header-title { font-size: 23px; }
+  }
+  @media (min-width: 1024px) {
+    main { max-width: 900px; }
+    /* Le Bilan (tableau) profite d'une largeur bien plus généreuse que le
+       reste, pour éviter le scroll horizontal inutile sur grand écran. */
+    main.main-large { max-width: 1180px; }
+  }
+
   .view { display: none; }
   .view.active { display: block; }
 
@@ -799,6 +815,7 @@ function showView(name) {
   document.querySelectorAll('.tab-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.view === name);
   });
+  document.querySelector('main').classList.toggle('main-large', name === 'bilan');
   if (name === 'form') resetForm();
   if (name === 'bilan') renderLivre();
 }

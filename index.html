@@ -1517,12 +1517,14 @@ function chargerScript(src) {
   });
 }
 function chargerLibPDF() {
-  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) return Promise.resolve();
   if (promesseLibPDF) return promesseLibPDF;
-  promesseLibPDF = Promise.all([
-    chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
-    chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js')
-  ]).then(function(){}).catch(function(err){ promesseLibPDF = null; throw err; });
+  // Chargement STRICTEMENT séquentiel : autoTable doit trouver jsPDF déjà
+  // présent sur window pour pouvoir s'y accrocher (sinon "autoTable is not
+  // a function" si les deux scripts se chargent en parallèle).
+  promesseLibPDF = chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+    .then(function(){ return chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'); })
+    .catch(function(err){ promesseLibPDF = null; throw err; });
   return promesseLibPDF;
 }
 

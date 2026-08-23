@@ -267,6 +267,19 @@
   .bilan-comparatif-col { flex: 1; text-align: center; }
   .bilan-comparatif-col + .bilan-comparatif-col { border-left: 1px solid var(--rule); }
 
+  /* Banque */
+  .compte-manuel-carte { margin-bottom: 10px; }
+  .compte-manuel-entete { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+  .compte-manuel-montant { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; }
+  .compte-manuel-edit { display: flex; gap: 8px; align-items: center; }
+  .compte-manuel-edit input { flex: 1; }
+  .transfert-ligne {
+    display: flex; justify-content: space-between; align-items: center; font-size: 13px;
+    padding: 8px 0; border-bottom: 1px solid var(--rule);
+  }
+  .transfert-ligne:last-child { border-bottom: none; }
+  .transfert-ligne .tx-meta { margin-top: 2px; }
+
   @media (min-width: 700px) {
     .bilan-annuel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
   }
@@ -722,6 +735,50 @@
         <div class="bilan-annuel-grid" id="bilan-annuel-grille"></div>
       </div>
     </section>
+
+    <!-- ---------- Banque (comptes bancaires + transferts) ---------- -->
+    <section id="view-comptes" class="view">
+      <div class="card">
+        <label class="field-label">Année (compte courant)</label>
+        <select id="comptes-annee"></select>
+      </div>
+
+      <div class="card">
+        <div class="bilan-bloc-header"><span>Compte courant</span></div>
+        <div class="balance-amount" id="compte-courant-solde" style="font-size:30px; margin:8px 0;">0,00 €</div>
+        <div class="tx-meta" id="compte-courant-detail" style="line-height:1.7;"></div>
+        <div style="border-top:1px solid var(--rule); margin:14px 0;"></div>
+        <label class="field-label">Solde au 1er janvier de cette année</label>
+        <input type="number" id="compte-courant-solde-initial" inputmode="decimal" step="0.01" placeholder="0.00">
+        <button class="btn btn-secondary" id="btn-compte-courant-enregistrer" style="margin-top:10px;">Enregistrer</button>
+      </div>
+
+      <div id="comptes-manuels"></div>
+
+      <div class="section-title">Transfert entre comptes</div>
+      <div class="card">
+        <label class="field-label">Depuis</label>
+        <select id="transfert-depuis"></select>
+        <label class="field-label">Vers</label>
+        <select id="transfert-vers"></select>
+        <label class="field-label">Montant (€)</label>
+        <input type="number" id="transfert-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+        <label class="field-label">Date</label>
+        <div class="date-field-wrap">
+          <div class="date-display" id="transfert-date-display">Choisir…</div>
+          <input type="date" id="transfert-date">
+        </div>
+        <label class="field-label">Note (facultatif)</label>
+        <input type="text" id="transfert-note" placeholder="Ex. Provision Sainte Cécile">
+        <button class="btn btn-primary" id="btn-transfert-enregistrer" style="margin-top:12px;">↔ Enregistrer le transfert</button>
+      </div>
+
+      <div class="section-title">Transferts récents</div>
+      <div class="card">
+        <div id="transferts-liste"></div>
+        <div class="empty-state hidden" id="transferts-empty">Aucun transfert pour l'instant.</div>
+      </div>
+    </section>
   </main>
 
   <button class="fab hidden" id="fab-add">＋</button>
@@ -730,6 +787,7 @@
     <button class="tab-btn active" data-view="dashboard"><span class="tab-icon">🏠</span>Accueil</button>
     <button class="tab-btn" data-view="form"><span class="tab-icon">➕</span>Saisie</button>
     <button class="tab-btn" data-view="bilan"><span class="tab-icon">📊</span>Bilan</button>
+    <button class="tab-btn" data-view="comptes"><span class="tab-icon">🏦</span>Banque</button>
     <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">⚙️</span>Admin</button>
   </nav>
 </div>
@@ -840,6 +898,9 @@ const state = {
   livre: { annee: String(new Date().getFullYear()), type: 'tout', activite: 'toutes', moyen: 'tous', recherche: '', triChamp: 'date', triSens: 'desc' },
   bilanSousVue: 'livre',
   adminPage: 'utilisateurs',
+  comptesAnnee: String(new Date().getFullYear()),
+  comptesBancaires: { livretA: 0, livretSocietaire: 0, compteTitre: 0, soldeInitialCompteCourant: {} },
+  transferts: [],
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -853,7 +914,7 @@ const state = {
 };
 state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
-let unsubTx = null, unsubUsers = null;
+let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null;
 
 /* ============================================================
    UTILITAIRES
@@ -910,6 +971,7 @@ function showView(name) {
   document.querySelector('main').classList.toggle('main-large', name === 'bilan');
   if (name === 'form') resetForm();
   if (name === 'bilan') afficherSousVueBilan(state.bilanSousVue);
+  if (name === 'comptes') renderComptes();
 }
 
 /* ============================================================
@@ -1031,6 +1093,8 @@ fbAuth.onAuthStateChanged(function(user){
   $('boot-screen').classList.add('hidden');
   if (unsubTx) { unsubTx(); unsubTx = null; }
   if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+  if (unsubComptes) { unsubComptes(); unsubComptes = null; }
+  if (unsubTransferts) { unsubTransferts(); unsubTransferts = null; }
 
   if (!user) {
     state.user = null; state.role = null;
@@ -1066,6 +1130,8 @@ fbAuth.onAuthStateChanged(function(user){
 
     chargerActivites(isAdmin).then(function(){
       demarrerEcouteTransactions();
+      demarrerEcouteComptesBancaires();
+      demarrerEcouteTransferts();
       remplirSelectsActivite();
       if (isAdmin) {
         demarrerEcouteUtilisateurs();
@@ -1597,6 +1663,210 @@ function renderBilanAnnuelEcran() {
     grille.appendChild(nomRec && recettesParNom[nomRec] ? construireCarteBilan(recettesParNom[nomRec], 'recette', indexRecComp, anneeComp) : document.createElement('div'));
   });
 }
+
+/* ============================================================
+   BANQUE — comptes bancaires (courant calculé, livrets manuels) + transferts
+   ============================================================ */
+const COMPTES_DEFINITION = [
+  { id: 'compteCourant', nom: 'Compte courant', manuel: false },
+  { id: 'livretA', nom: 'Livret A', manuel: true },
+  { id: 'livretSocietaire', nom: 'Livret engagé sociétaire', manuel: true },
+  { id: 'compteTitre', nom: 'Compte titre', manuel: true }
+];
+function nomCompte(id) {
+  const c = COMPTES_DEFINITION.find(function(x){ return x.id === id; });
+  return c ? c.nom : id;
+}
+
+function demarrerEcouteComptesBancaires() {
+  if (unsubComptes) unsubComptes();
+  unsubComptes = fbDb.collection('config').doc('comptesBancaires').onSnapshot(function(doc){
+    const data = doc.exists ? doc.data() : {};
+    state.comptesBancaires = {
+      livretA: Number(data.livretA) || 0,
+      livretSocietaire: Number(data.livretSocietaire) || 0,
+      compteTitre: Number(data.compteTitre) || 0,
+      soldeInitialCompteCourant: data.soldeInitialCompteCourant || {}
+    };
+    if (document.getElementById('view-comptes').classList.contains('active')) renderComptes();
+  }, function(err){ console.error('Ecoute comptesBancaires :', err); });
+}
+
+function demarrerEcouteTransferts() {
+  if (unsubTransferts) unsubTransferts();
+  unsubTransferts = fbDb.collection('transferts').orderBy('date', 'desc').onSnapshot(function(snap){
+    state.transferts = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    if (document.getElementById('view-comptes').classList.contains('active')) renderComptes();
+  }, function(err){ console.error('Ecoute transferts :', err); });
+}
+
+function remplirComptesAnnees() {
+  const anneeCourante = String(new Date().getFullYear());
+  const annees = new Set([anneeCourante]);
+  state.transactions.forEach(function(t){ if (t.date) annees.add(t.date.slice(0, 4)); });
+  const anneesTriees = Array.from(annees).sort().reverse();
+  const sel = $('comptes-annee');
+  const valeurActuelle = sel.value || anneeCourante;
+  sel.innerHTML = '';
+  anneesTriees.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    sel.appendChild(opt);
+  });
+  sel.value = anneesTriees.indexOf(valeurActuelle) !== -1 ? valeurActuelle : anneeCourante;
+}
+$('comptes-annee').addEventListener('change', renderComptes);
+
+// Solde théorique du compte courant pour une année : solde de départ (saisi
+// à la main) + recettes − dépenses de l'année + transferts entrants − sortants.
+function calculerSoldeCompteCourant(annee) {
+  const soldeInitial = Number(state.comptesBancaires.soldeInitialCompteCourant[annee]) || 0;
+  let recettes = 0, depenses = 0;
+  state.transactions.forEach(function(t){
+    if ((t.date || '').slice(0, 4) !== annee) return;
+    if (t.type === 'recette') recettes += Number(t.montant) || 0;
+    else depenses += Number(t.montant) || 0;
+  });
+  let transfertsEntrants = 0, transfertsSortants = 0;
+  state.transferts.forEach(function(tr){
+    if ((tr.date || '').slice(0, 4) !== annee) return;
+    if (tr.vers === 'compteCourant') transfertsEntrants += Number(tr.montant) || 0;
+    if (tr.depuis === 'compteCourant') transfertsSortants += Number(tr.montant) || 0;
+  });
+  return {
+    soldeInitial: soldeInitial, recettes: recettes, depenses: depenses,
+    transfertsEntrants: transfertsEntrants, transfertsSortants: transfertsSortants,
+    solde: soldeInitial + recettes - depenses + transfertsEntrants - transfertsSortants
+  };
+}
+
+function renderComptes() {
+  remplirComptesAnnees();
+  remplirTransfertSelects();
+  const annee = $('comptes-annee').value || String(new Date().getFullYear());
+
+  const detail = calculerSoldeCompteCourant(annee);
+  const soldeEl = $('compte-courant-solde');
+  soldeEl.textContent = formatMoney(detail.solde);
+  soldeEl.classList.toggle('negative', detail.solde < 0);
+  $('compte-courant-detail').innerHTML =
+    'Solde au 1er janvier ' + annee + ' : ' + formatMoney(detail.soldeInitial) + '<br>' +
+    '+ Recettes ' + annee + ' : ' + formatMoney(detail.recettes) + '<br>' +
+    '− Dépenses ' + annee + ' : ' + formatMoney(detail.depenses) +
+    (detail.transfertsEntrants ? '<br>+ Transferts reçus : ' + formatMoney(detail.transfertsEntrants) : '') +
+    (detail.transfertsSortants ? '<br>− Transferts envoyés : ' + formatMoney(detail.transfertsSortants) : '');
+  $('compte-courant-solde-initial').value = state.comptesBancaires.soldeInitialCompteCourant[annee] || '';
+
+  const conteneur = $('comptes-manuels');
+  conteneur.innerHTML = '';
+  COMPTES_DEFINITION.filter(function(c){ return c.manuel; }).forEach(function(c){
+    const carte = document.createElement('div');
+    carte.className = 'card compte-manuel-carte';
+    carte.innerHTML =
+      '<div class="compte-manuel-entete"><span>' + escHtml(c.nom) + '</span><span class="compte-manuel-montant">' + formatMoney(state.comptesBancaires[c.id]) + '</span></div>' +
+      '<div class="compte-manuel-edit">' +
+        '<input type="number" inputmode="decimal" step="0.01" placeholder="Nouveau montant" id="edit-' + c.id + '">' +
+        '<button class="btn btn-secondary" style="width:auto; white-space:nowrap;" id="btn-edit-' + c.id + '">Mettre à jour</button>' +
+      '</div>';
+    conteneur.appendChild(carte);
+    $('btn-edit-' + c.id).addEventListener('click', function(){
+      const valeur = parseFloat($('edit-' + c.id).value);
+      if (isNaN(valeur)) { toast('Montant invalide.'); return; }
+      const maj = {};
+      maj[c.id] = valeur;
+      fbDb.collection('config').doc('comptesBancaires').set(maj, { merge: true }).then(function(){
+        toast(c.nom + ' mis à jour.');
+      }).catch(function(err){ toast('Erreur : ' + err.message); });
+    });
+  });
+
+  renderTransferts();
+}
+
+$('btn-compte-courant-enregistrer').addEventListener('click', function(){
+  const annee = $('comptes-annee').value;
+  const valeur = parseFloat($('compte-courant-solde-initial').value);
+  if (isNaN(valeur)) { toast('Montant invalide.'); return; }
+  const chemin = 'soldeInitialCompteCourant.' + annee;
+  fbDb.collection('config').doc('comptesBancaires').set({ soldeInitialCompteCourant: Object.assign({}, state.comptesBancaires.soldeInitialCompteCourant, (function(){ const o = {}; o[annee] = valeur; return o; })()) }, { merge: true })
+    .then(function(){ toast('Solde initial enregistré.'); })
+    .catch(function(err){ toast('Erreur : ' + err.message); });
+});
+
+function remplirTransfertSelects() {
+  ['transfert-depuis', 'transfert-vers'].forEach(function(id){
+    const sel = $(id);
+    const valeurActuelle = sel.value;
+    sel.innerHTML = '';
+    COMPTES_DEFINITION.forEach(function(c){
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.nom;
+      sel.appendChild(opt);
+    });
+    if (valeurActuelle) sel.value = valeurActuelle;
+  });
+  if ($('transfert-vers').value === $('transfert-depuis').value) {
+    $('transfert-vers').selectedIndex = 1;
+  }
+}
+
+brancherAffichageDate('transfert-date', 'transfert-date-display');
+$('transfert-date').value = todayIso();
+$('transfert-date-display').textContent = formatDateLongue(todayIso());
+
+$('btn-transfert-enregistrer').addEventListener('click', function(){
+  const depuis = $('transfert-depuis').value;
+  const vers = $('transfert-vers').value;
+  const montant = parseFloat($('transfert-montant').value);
+  const date = $('transfert-date').value || todayIso();
+  const note = $('transfert-note').value.trim();
+
+  if (depuis === vers) { toast('Choisis deux comptes différents.'); return; }
+  if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
+
+  const btn = $('btn-transfert-enregistrer');
+  btn.disabled = true;
+
+  const majComptes = {};
+  const compteDepuis = COMPTES_DEFINITION.find(function(c){ return c.id === depuis; });
+  const compteVers = COMPTES_DEFINITION.find(function(c){ return c.id === vers; });
+  if (compteDepuis.manuel) majComptes[depuis] = (Number(state.comptesBancaires[depuis]) || 0) - montant;
+  if (compteVers.manuel) majComptes[vers] = (Number(state.comptesBancaires[vers]) || 0) + montant;
+
+  const lot = fbDb.batch();
+  const refTransfert = fbDb.collection('transferts').doc();
+  lot.set(refTransfert, {
+    date: date, montant: montant, depuis: depuis, vers: vers, note: note,
+    creeParUid: state.user.uid, creeParEmail: state.user.email,
+    creeLe: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  if (Object.keys(majComptes).length > 0) {
+    lot.set(fbDb.collection('config').doc('comptesBancaires'), majComptes, { merge: true });
+  }
+  lot.commit().then(function(){
+    toast('Transfert enregistré.');
+    $('transfert-montant').value = '';
+    $('transfert-note').value = '';
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  }).then(function(){ btn.disabled = false; });
+});
+
+function renderTransferts() {
+  const el = $('transferts-liste');
+  el.innerHTML = '';
+  $('transferts-empty').classList.toggle('hidden', state.transferts.length > 0);
+  state.transferts.slice(0, 30).forEach(function(tr){
+    const ligne = document.createElement('div');
+    ligne.className = 'transfert-ligne';
+    ligne.innerHTML =
+      '<div><div>' + escHtml(nomCompte(tr.depuis)) + ' → ' + escHtml(nomCompte(tr.vers)) + '</div>' +
+      '<div class="tx-meta">' + formatDateShort(tr.date) + (tr.note ? ' · ' + escHtml(tr.note) : '') + '</div></div>' +
+      '<div style="font-family:\'IBM Plex Mono\', monospace; font-weight:600;">' + formatMoney(tr.montant) + '</div>';
+    el.appendChild(ligne);
+  });
+}
+
 
 // Chargement paresseux de jsPDF + autoTable (uniquement pour l'export PDF).
 let promesseLibPDF = null;

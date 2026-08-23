@@ -243,6 +243,17 @@
   table.livre td.montant.depense { color: var(--stamp); }
   table.livre td.montant.recette { color: var(--green); }
 
+  /* Bilan annuel */
+  .bilan-bloc { margin-bottom: 10px; }
+  .bilan-bloc-header { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
+  .bilan-bloc-header.depense .bilan-bloc-montant { color: var(--stamp); }
+  .bilan-bloc-header.recette .bilan-bloc-montant { color: var(--green); }
+  .bilan-ligne {
+    display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft);
+    padding: 6px 0 6px 12px; border-top: 1px solid var(--rule); margin-top: 8px;
+  }
+  .bilan-ligne:first-of-type { margin-top: 10px; }
+
   /* Formulaires */
   label.field-label {
     display: block; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -292,6 +303,7 @@
     color: var(--ink-soft); cursor: pointer;
   }
   .type-switch button.active.depense { background: var(--stamp-soft); border-color: var(--stamp); color: var(--stamp); }
+  .type-switch button.active:not(.depense):not(.recette) { background: var(--focus); border-color: var(--focus); color: #fff; }
   .type-switch button.active.recette { background: var(--green-soft); border-color: var(--green); color: var(--green); }
 
   .photo-zone {
@@ -581,54 +593,89 @@
 
     <!-- ---------- Bilan / Livre de compte ---------- -->
     <section id="view-bilan" class="view">
-      <div class="card">
-        <label class="field-label">Année</label>
-        <select id="livre-annee"></select>
-
-        <label class="field-label">Type</label>
-        <select id="livre-type">
-          <option value="tout">Tout</option>
-          <option value="depense">Dépenses</option>
-          <option value="recette">Recettes</option>
-        </select>
-
-        <label class="field-label">Catégorie</label>
-        <select id="livre-activite"><option value="toutes">Toutes</option></select>
-
-        <label class="field-label">Moyen de paiement</label>
-        <select id="livre-moyen"><option value="tous">Tous</option></select>
-
-        <label class="field-label">Recherche (libellé)</label>
-        <input type="text" id="livre-recherche" placeholder="Rechercher dans le libellé…">
+      <div class="type-switch" style="margin-bottom:14px;">
+        <button type="button" class="active" id="bilan-toggle-livre">📒 Livre de compte</button>
+        <button type="button" id="bilan-toggle-annuel">📊 Bilan annuel</button>
       </div>
 
-      <div class="card balance-card">
-        <div class="balance-label" id="livre-total-label">0 TRANSACTION</div>
-        <div class="balance-amount" id="livre-total-montant" style="font-size:26px;">0,00 €</div>
-        <div class="balance-sub">
-          <span class="in" id="livre-total-in">+ 0,00 €</span>
-          <span class="out" id="livre-total-out">− 0,00 €</span>
+      <div id="bilan-vue-livre">
+        <div class="card">
+          <label class="field-label">Année</label>
+          <select id="livre-annee"></select>
+
+          <label class="field-label">Type</label>
+          <select id="livre-type">
+            <option value="tout">Tout</option>
+            <option value="depense">Dépenses</option>
+            <option value="recette">Recettes</option>
+          </select>
+
+          <label class="field-label">Catégorie</label>
+          <select id="livre-activite"><option value="toutes">Toutes</option></select>
+
+          <label class="field-label">Moyen de paiement</label>
+          <select id="livre-moyen"><option value="tous">Tous</option></select>
+
+          <label class="field-label">Recherche (libellé)</label>
+          <input type="text" id="livre-recherche" placeholder="Rechercher dans le libellé…">
+        </div>
+
+        <div class="card balance-card">
+          <div class="balance-label" id="livre-total-label">0 TRANSACTION</div>
+          <div class="balance-amount" id="livre-total-montant" style="font-size:26px;">0,00 €</div>
+          <div class="balance-sub">
+            <span class="in" id="livre-total-in">+ 0,00 €</span>
+            <span class="out" id="livre-total-out">− 0,00 €</span>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0; overflow:hidden;">
+          <div class="tableau-scroll">
+            <table class="livre">
+              <thead>
+                <tr>
+                  <th data-champ="numero">Numéro</th>
+                  <th data-champ="date">Date</th>
+                  <th data-champ="moyenPaiement">Moyen</th>
+                  <th data-champ="libelle">Libellé</th>
+                  <th data-champ="activite">Catégorie</th>
+                  <th data-champ="sousActivite">Sous-catégorie</th>
+                  <th data-champ="montant">Montant</th>
+                </tr>
+              </thead>
+              <tbody id="livre-tbody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state hidden" id="livre-empty">Aucune transaction ne correspond à ces filtres.</div>
         </div>
       </div>
 
-      <div class="card" style="padding:0; overflow:hidden;">
-        <div class="tableau-scroll">
-          <table class="livre">
-            <thead>
-              <tr>
-                <th data-champ="numero">Numéro</th>
-                <th data-champ="date">Date</th>
-                <th data-champ="moyenPaiement">Moyen</th>
-                <th data-champ="libelle">Libellé</th>
-                <th data-champ="activite">Catégorie</th>
-                <th data-champ="sousActivite">Sous-catégorie</th>
-                <th data-champ="montant">Montant</th>
-              </tr>
-            </thead>
-            <tbody id="livre-tbody"></tbody>
-          </table>
+      <div id="bilan-vue-annuel" class="hidden">
+        <div class="card">
+          <label class="field-label">Année</label>
+          <select id="bilan-annuel-annee"></select>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="btn btn-secondary" id="btn-bilan-export-excel" style="width:auto; flex:1;">📤 Excel</button>
+            <button class="btn btn-secondary" id="btn-bilan-export-pdf" style="width:auto; flex:1;">📄 PDF</button>
+          </div>
+          <div class="tx-meta" style="margin-top:8px;">Envoyé dans Drive (03 - Trésorerie / année / 09-Comptabilité).</div>
+          <div id="bilan-annuel-export-status" class="tx-meta"></div>
         </div>
-        <div class="empty-state hidden" id="livre-empty">Aucune transaction ne correspond à ces filtres.</div>
+
+        <div class="card balance-card">
+          <div class="balance-label">Solde de l'année</div>
+          <div class="balance-amount" id="bilan-annuel-solde" style="font-size:32px;">0,00 €</div>
+          <div class="balance-sub">
+            <span class="in" id="bilan-annuel-total-recettes">+ 0,00 €</span>
+            <span class="out" id="bilan-annuel-total-depenses">− 0,00 €</span>
+          </div>
+        </div>
+
+        <div class="section-title">Dépenses</div>
+        <div id="bilan-annuel-depenses"></div>
+
+        <div class="section-title">Recettes</div>
+        <div id="bilan-annuel-recettes"></div>
       </div>
     </section>
   </main>
@@ -747,6 +794,7 @@ const state = {
   filtre: 'tout',
   anneeFiltre: String(new Date().getFullYear()),
   livre: { annee: String(new Date().getFullYear()), type: 'tout', activite: 'toutes', moyen: 'tous', recherche: '', triChamp: 'date', triSens: 'desc' },
+  bilanSousVue: 'livre',
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -816,7 +864,7 @@ function showView(name) {
   });
   document.querySelector('main').classList.toggle('main-large', name === 'bilan');
   if (name === 'form') resetForm();
-  if (name === 'bilan') renderLivre();
+  if (name === 'bilan') afficherSousVueBilan(state.bilanSousVue);
 }
 
 /* ============================================================
@@ -1314,6 +1362,261 @@ function renderLivre() {
       '<td class="montant ' + t.type + '">' + (t.type === 'recette' ? '+' : '−') + ' ' + formatMoney(t.montant) + '</td>';
     tr.addEventListener('click', function(){ ouvrirModalTransaction(t); });
     tbody.appendChild(tr);
+  });
+}
+
+/* ============================================================
+   BILAN ANNUEL — bascule, calcul par activité/sous-activité, export
+   ============================================================ */
+$('bilan-toggle-livre').addEventListener('click', function(){ afficherSousVueBilan('livre'); });
+$('bilan-toggle-annuel').addEventListener('click', function(){ afficherSousVueBilan('annuel'); });
+
+function afficherSousVueBilan(sousVue) {
+  state.bilanSousVue = sousVue;
+  $('bilan-toggle-livre').classList.toggle('active', sousVue === 'livre');
+  $('bilan-toggle-annuel').classList.toggle('active', sousVue === 'annuel');
+  $('bilan-vue-livre').classList.toggle('hidden', sousVue !== 'livre');
+  $('bilan-vue-annuel').classList.toggle('hidden', sousVue !== 'annuel');
+  if (sousVue === 'livre') {
+    renderLivre();
+  } else {
+    remplirBilanAnnuelAnnees();
+    renderBilanAnnuelEcran();
+  }
+}
+
+function remplirBilanAnnuelAnnees() {
+  const anneeCourante = String(new Date().getFullYear());
+  const annees = new Set([anneeCourante]);
+  state.transactions.forEach(function(t){ if (t.date) annees.add(t.date.slice(0, 4)); });
+  const anneesTriees = Array.from(annees).sort().reverse();
+  const sel = $('bilan-annuel-annee');
+  const valeurActuelle = sel.value || anneeCourante;
+  sel.innerHTML = '';
+  anneesTriees.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    sel.appendChild(opt);
+  });
+  sel.value = anneesTriees.indexOf(valeurActuelle) !== -1 ? valeurActuelle : anneeCourante;
+}
+$('bilan-annuel-annee').addEventListener('change', renderBilanAnnuelEcran);
+
+// Regroupe les transactions d'une année par activité fixe puis sous-activité,
+// avec sous-totaux — même logique que l'onglet "Bilan Annuel" du fichier Excel.
+function calculerBilanAnnuel(annee) {
+  function calculerType(activitesFixes, type) {
+    return activitesFixes.map(function(nomActivite){
+      const lignes = state.transactions.filter(function(t){
+        return t.type === type && t.activite === nomActivite && (t.date || '').slice(0, 4) === annee;
+      });
+      const parSousActivite = {};
+      lignes.forEach(function(t){
+        const cle = t.sousActivite || '(Sans sous-activité)';
+        parSousActivite[cle] = (parSousActivite[cle] || 0) + (Number(t.montant) || 0);
+      });
+      const sousActivites = Object.keys(parSousActivite).sort().map(function(cle){
+        return { nom: cle, total: parSousActivite[cle] };
+      });
+      const total = sousActivites.reduce(function(s, x){ return s + x.total; }, 0);
+      return { activite: nomActivite, sousActivites: sousActivites, total: total };
+    });
+  }
+  const depenses = calculerType(ACTIVITES_FIXES_DEPENSES, 'depense');
+  const recettes = calculerType(ACTIVITES_FIXES_RECETTES, 'recette');
+  const totalDepenses = depenses.reduce(function(s, a){ return s + a.total; }, 0);
+  const totalRecettes = recettes.reduce(function(s, a){ return s + a.total; }, 0);
+  return { annee: annee, depenses: depenses, recettes: recettes, totalDepenses: totalDepenses, totalRecettes: totalRecettes, solde: totalRecettes - totalDepenses };
+}
+
+function renderBlocsBilan(containerId, blocs, type) {
+  const el = $(containerId);
+  el.innerHTML = '';
+  blocs.forEach(function(bloc){
+    const carte = document.createElement('div');
+    carte.className = 'card bilan-bloc';
+    let html = '<div class="bilan-bloc-header ' + type + '"><span>' + escHtml(bloc.activite) + '</span><span class="bilan-bloc-montant">' + formatMoney(bloc.total) + '</span></div>';
+    if (bloc.sousActivites.length === 0) {
+      html += '<div class="bilan-ligne" style="font-style:italic;">Aucune transaction</div>';
+    } else {
+      bloc.sousActivites.forEach(function(s){
+        html += '<div class="bilan-ligne"><span>' + escHtml(s.nom) + '</span><span>' + formatMoney(s.total) + '</span></div>';
+      });
+    }
+    carte.innerHTML = html;
+    el.appendChild(carte);
+  });
+}
+
+function renderBilanAnnuelEcran() {
+  const annee = $('bilan-annuel-annee').value || String(new Date().getFullYear());
+  const data = calculerBilanAnnuel(annee);
+  const soldeEl = $('bilan-annuel-solde');
+  soldeEl.textContent = formatMoney(data.solde);
+  soldeEl.classList.toggle('negative', data.solde < 0);
+  $('bilan-annuel-total-recettes').textContent = '+ ' + formatMoney(data.totalRecettes);
+  $('bilan-annuel-total-depenses').textContent = '− ' + formatMoney(data.totalDepenses);
+  renderBlocsBilan('bilan-annuel-depenses', data.depenses, 'depense');
+  renderBlocsBilan('bilan-annuel-recettes', data.recettes, 'recette');
+}
+
+// Chargement paresseux de jsPDF + autoTable (uniquement pour l'export PDF).
+let promesseLibPDF = null;
+function chargerScript(src) {
+  return new Promise(function(resolve, reject){
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ reject(new Error('Échec de chargement : ' + src)); };
+    document.head.appendChild(s);
+  });
+}
+function chargerLibPDF() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+  if (promesseLibPDF) return promesseLibPDF;
+  promesseLibPDF = Promise.all([
+    chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+    chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js')
+  ]).then(function(){}).catch(function(err){ promesseLibPDF = null; throw err; });
+  return promesseLibPDF;
+}
+
+function genererExcelBilanAnnuel(data) {
+  const lignes = [];
+  lignes.push(['Bilan annuel ' + data.annee + ' — Banda Esperanza']);
+  lignes.push([]);
+  lignes.push(['DÉPENSES']);
+  lignes.push(['Catégorie / Sous-catégorie', 'Montant']);
+  data.depenses.forEach(function(bloc){
+    lignes.push([bloc.activite, bloc.total]);
+    bloc.sousActivites.forEach(function(s){ lignes.push(['   ' + s.nom, s.total]); });
+  });
+  lignes.push(['TOTAL DÉPENSES', data.totalDepenses]);
+  lignes.push([]);
+  lignes.push(['RECETTES']);
+  lignes.push(['Catégorie / Sous-catégorie', 'Montant']);
+  data.recettes.forEach(function(bloc){
+    lignes.push([bloc.activite, bloc.total]);
+    bloc.sousActivites.forEach(function(s){ lignes.push(['   ' + s.nom, s.total]); });
+  });
+  lignes.push(['TOTAL RECETTES', data.totalRecettes]);
+  lignes.push([]);
+  lignes.push(['SOLDE', data.solde]);
+
+  const feuille = XLSX.utils.aoa_to_sheet(lignes);
+  feuille['!cols'] = [{ wch: 38 }, { wch: 14 }];
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Bilan ' + data.annee);
+  const contenu = XLSX.write(classeur, { bookType: 'xlsx', type: 'array' });
+  return new Blob([contenu], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+function genererPDFBilanAnnuel(data) {
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const marge = 14;
+  let y = 20;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(42, 37, 96);
+  doc.text('Bilan annuel ' + data.annee, marge, y);
+  doc.setFontSize(11);
+  doc.setTextColor(120, 120, 120);
+  doc.text('Banda Esperanza Tyrosse', marge, y + 6);
+  y += 16;
+
+  function ligneBloc(bloc, fond) {
+    const lignes = [[{ content: bloc.activite, styles: { fontStyle: 'bold', fillColor: fond } }, { content: formatMoney(bloc.total), styles: { fontStyle: 'bold', fillColor: fond, halign: 'right' } }]];
+    if (bloc.sousActivites.length === 0) {
+      lignes.push([{ content: 'Aucune transaction', styles: { fontStyle: 'italic', textColor: [150, 150, 150] } }, '']);
+    } else {
+      bloc.sousActivites.forEach(function(s){
+        lignes.push([s.nom, { content: formatMoney(s.total), styles: { halign: 'right' } }]);
+      });
+    }
+    return lignes;
+  }
+
+  doc.setFontSize(13);
+  doc.setTextColor(196, 48, 42);
+  doc.text('Dépenses', marge, y);
+  y += 2;
+  let corpsDepenses = [];
+  data.depenses.forEach(function(bloc){ corpsDepenses = corpsDepenses.concat(ligneBloc(bloc, [245, 225, 222])); });
+  doc.autoTable({
+    startY: y, margin: { left: marge, right: marge },
+    head: [['Catégorie / Sous-catégorie', 'Montant']],
+    body: corpsDepenses, theme: 'plain',
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.2 },
+    headStyles: { fillColor: [42, 37, 96], textColor: 255 },
+    columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  if (y > 250) { doc.addPage(); y = 20; }
+  doc.setFontSize(13);
+  doc.setTextColor(46, 125, 78);
+  doc.text('Recettes', marge, y);
+  y += 2;
+  let corpsRecettes = [];
+  data.recettes.forEach(function(bloc){ corpsRecettes = corpsRecettes.concat(ligneBloc(bloc, [228, 241, 231])); });
+  doc.autoTable({
+    startY: y, margin: { left: marge, right: marge },
+    head: [['Catégorie / Sous-catégorie', 'Montant']],
+    body: corpsRecettes, theme: 'plain',
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.2 },
+    headStyles: { fillColor: [42, 37, 96], textColor: 255 },
+    columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  if (y > 250) { doc.addPage(); y = 20; }
+  doc.autoTable({
+    startY: y, margin: { left: marge, right: marge },
+    body: [
+      ['Total dépenses', formatMoney(data.totalDepenses)],
+      ['Total recettes', formatMoney(data.totalRecettes)],
+      [{ content: 'Solde', styles: { fontStyle: 'bold' } }, { content: formatMoney(data.solde), styles: { fontStyle: 'bold' } }]
+    ],
+    theme: 'grid',
+    styles: { font: 'helvetica', fontSize: 10, cellPadding: 3 },
+    columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+  });
+
+  return doc.output('blob');
+}
+
+$('btn-bilan-export-excel').addEventListener('click', function(){ exporterBilanAnnuel('xlsx'); });
+$('btn-bilan-export-pdf').addEventListener('click', function(){ exporterBilanAnnuel('pdf'); });
+
+function exporterBilanAnnuel(format) {
+  const annee = $('bilan-annuel-annee').value;
+  const data = calculerBilanAnnuel(annee);
+  const statusEl = $('bilan-annuel-export-status');
+  statusEl.textContent = 'Préparation…';
+
+  const preparation = format === 'xlsx'
+    ? chargerLibXLSX().then(function(){ return genererExcelBilanAnnuel(data); })
+    : chargerLibPDF().then(function(){ return genererPDFBilanAnnuel(data); });
+
+  preparation.then(function(blob){
+    statusEl.textContent = 'Connexion Drive…';
+    return ensureDriveConnecte().then(function(ok){
+      if (!ok) throw new Error('Connexion Drive nécessaire.');
+      statusEl.textContent = 'Envoi vers Drive…';
+      return obtenirDossierComptabiliteAnnee(annee).then(function(folderId){
+        const nomFichier = 'BilanAnnuel_' + annee + (format === 'xlsx' ? '.xlsx' : '.pdf');
+        const mime = format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf';
+        return uploaderFichierDrive(blob, nomFichier, folderId, mime);
+      });
+    });
+  }).then(function(){
+    statusEl.textContent = 'Export ' + format.toUpperCase() + ' envoyé vers Drive.';
+    toast('Bilan annuel exporté.');
+  }).catch(function(err){
+    statusEl.textContent = 'Erreur : ' + err.message;
+    toast('Erreur export : ' + err.message);
   });
 }
 

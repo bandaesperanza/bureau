@@ -301,6 +301,16 @@
   .btn-secondary { background: var(--card); color: var(--ink); border: 1px solid var(--rule); }
   .btn-ghost { background: transparent; color: var(--ink-soft); border: 1px dashed var(--rule); }
   .btn-drive { background: var(--focus); color: #fff; }
+
+  /* Badges façon icône de fichier (Excel / PDF), sur les boutons d'export */
+  .btn-fichier { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .badge-fichier {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 20px; border-radius: 4px; flex-shrink: 0;
+    font-family: 'IBM Plex Mono', monospace; font-weight: 700; color: #fff;
+  }
+  .badge-fichier.excel { background: #1D6F42; font-size: 12px; }
+  .badge-fichier.pdf { background: #D93831; font-size: 8px; width: 28px; }
   .btn[disabled] { opacity: 0.5; pointer-events: none; }
 
   .type-switch { display: flex; gap: 8px; margin-bottom: 4px; }
@@ -662,8 +672,8 @@
           <label class="field-label">Année</label>
           <select id="bilan-annuel-annee"></select>
           <div style="display:flex; gap:8px; margin-top:12px;">
-            <button class="btn btn-secondary" id="btn-bilan-export-excel" style="width:auto; flex:1;">📤 Excel</button>
-            <button class="btn btn-secondary" id="btn-bilan-export-pdf" style="width:auto; flex:1;">📄 PDF</button>
+            <button class="btn btn-secondary btn-fichier" id="btn-bilan-export-excel" style="width:auto; flex:1;"><span class="badge-fichier excel">X</span> Excel</button>
+            <button class="btn btn-secondary btn-fichier" id="btn-bilan-export-pdf" style="width:auto; flex:1;"><span class="badge-fichier pdf">PDF</span> PDF</button>
           </div>
           <div class="tx-meta" style="margin-top:8px;">Envoyé dans Drive (03 - Trésorerie / année / 05-Bilan Fin d'année).</div>
           <div id="bilan-annuel-export-status" class="tx-meta"></div>

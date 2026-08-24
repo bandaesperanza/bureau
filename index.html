@@ -2568,7 +2568,7 @@ function enregistrerTransaction() {
 
   drivePromise.then(function(connecte){
     if (photoBlob && connecte) {
-      return uploaderFactureDrive(photoBlob, photoName, state.formType, activite, sousActivite, date, libelle)
+      return uploaderFactureDrive(photoBlob, photoName, state.formType, activite, sousActivite, date, libelle, numero)
         .then(function(res){
           txData.driveFileId = res.id;
           txData.driveFileUrl = res.webViewLink;
@@ -2768,12 +2768,13 @@ function convertirImageEnPDF(blob) {
   });
 }
 
-function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, libelle) {
+function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, libelle, numero) {
   const annee = (date || todayIso()).slice(0, 4);
   return convertirImageEnPDF(blob).then(function(blobPDF){
     return obtenirDossierActivite(type, activite, annee).then(function(folderId){
-      const libelleAssaini = (libelle || '').trim().replace(/[\/\\]/g, '-').slice(0, 40);
-      const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + (libelleAssaini ? '_' + libelleAssaini : '') + '.pdf';
+      const libelleAssaini = (libelle || '').trim().replace(/[\/\\]/g, '-').slice(0, 60);
+      const numeroAssaini = (numero || '').trim().replace(/[\/\\]/g, '-');
+      const nomFinal = (numeroAssaini ? numeroAssaini + '-' : '') + (libelleAssaini || sousActivite.replace(/[\/\\]/g, '-')) + '.pdf';
       const metadata = { name: nomFinal, parents: [folderId] };
       const boundary = '-------tresorerie' + Date.now();
       return blobPDF.arrayBuffer().then(function(buf){
@@ -2824,7 +2825,7 @@ function enfilerPhotoEnAttente(blob, nomFichier, txData) {
     tx.objectStore('photos_en_attente').add({
       blob: blob, nomFichier: nomFichier,
       type: txData.type, activite: txData.activite, sousActivite: txData.sousActivite,
-      date: txData.date, libelle: txData.libelle
+      date: txData.date, libelle: txData.libelle, numero: txData.numero
     });
   }).catch(function(e){ console.error('Enfilage photo échoué :', e); });
 }
@@ -2839,7 +2840,7 @@ function synchroniserPhotosEnAttente() {
         if (!ok) { toast('Connexion Drive nécessaire pour synchroniser.'); return; }
         let done = 0;
         items.forEach(function(item){
-          uploaderFactureDrive(item.blob, item.nomFichier, item.type, item.activite, item.sousActivite, item.date, item.libelle)
+          uploaderFactureDrive(item.blob, item.nomFichier, item.type, item.activite, item.sousActivite, item.date, item.libelle, item.numero)
             .then(function(){
               const delTx = db.transaction('photos_en_attente', 'readwrite');
               delTx.objectStore('photos_en_attente').delete(item.id);
@@ -2995,7 +2996,7 @@ function gererAjoutJustificatifModal(e) {
   ensureDriveConnecte().then(function(ok){
     if (!ok) throw new Error('Connexion Drive nécessaire.');
     statusEl.textContent = 'Envoi du justificatif…';
-    return uploaderFactureDrive(file, file.name || 'justificatif.jpg', tx.type, tx.activite, tx.sousActivite, tx.date, tx.libelle);
+    return uploaderFactureDrive(file, file.name || 'justificatif.jpg', tx.type, tx.activite, tx.sousActivite, tx.date, tx.libelle, tx.numero);
   }).then(function(res){
     resultatUpload = res;
     return fbDb.collection('transactions').doc(tx.id).update({

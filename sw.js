@@ -1,7 +1,7 @@
 // Cache de la coquille applicative. Les données (Firestore) et les photos
 // (Drive) restent gérées par leurs propres mécanismes en ligne/hors-ligne.
 // Monter la version à chaque déploiement pour forcer la mise à jour du cache.
-const CACHE_VERSION = 'v62';
+const CACHE_VERSION = 'v63';
 const CACHE_NAME = 'tresorerie-esperanza-' + CACHE_VERSION;
 
 const FICHIERS_A_METTRE_EN_CACHE = [

@@ -21,12 +21,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..700&family=Inter:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<!-- Anti-flash dark mode : applique le thème stocké avant le premier rendu -->
+<!-- Anti-flash dark mode : applique le thème stocké avant le premier rendu.
+     "auto" suit la préférence système (prefers-color-scheme). -->
 <script>
 (function(){
   try {
-    var t = localStorage.getItem('tresorerie_theme');
-    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    var pref = localStorage.getItem('tresorerie_theme') || 'auto';
+    var sombre = pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (sombre) document.documentElement.setAttribute('data-theme', 'dark');
   } catch(e) {}
 })();
 </script>
@@ -87,7 +89,7 @@
     position: fixed; inset: 0; z-index: 999;
     display: flex; align-items: center; justify-content: center;
     background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
-    color: var(--paper);
+    color: #F5F2EF;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 13px; letter-spacing: 0.04em;
   }
@@ -126,7 +128,7 @@
   /* ---------- En-tête ---------- */
   header.app-header {
     background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
-    color: var(--paper);
+    color: #F5F2EF;
     padding: calc(18px + env(safe-area-inset-top)) 18px 14px;
     flex-shrink: 0;
   }
@@ -142,7 +144,7 @@
   }
   .header-btn {
     background: rgba(246,243,236,0.1); border: 1px solid rgba(246,243,236,0.25);
-    color: var(--paper); border-radius: 10px; padding: 8px 10px;
+    color: #F5F2EF; border-radius: 10px; padding: 8px 10px;
     font-size: 16px; line-height: 1; cursor: pointer;
   }
   .header-btn:active { background: rgba(246,243,236,0.22); }
@@ -865,7 +867,7 @@
 
   <nav class="tabbar">
     <button class="tab-btn active" data-view="dashboard"><span class="tab-icon">🏠</span>Accueil</button>
-    <button class="tab-btn" data-view="form"><span class="tab-icon">➕</span>Saisie</button>
+    <button class="tab-btn" data-view="form"><span class="tab-icon">＋</span>Saisie</button>
     <button class="tab-btn" data-view="bilan"><span class="tab-icon">📊</span>Bilan</button>
     <button class="tab-btn" data-view="comptes"><span class="tab-icon">🏦</span>Banque</button>
     <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">⚙️</span>Admin</button>
@@ -1087,26 +1089,49 @@ function showView(name) {
 }
 
 /* ============================================================
-   THEME SOMBRE / CLAIR
+   THEME SOMBRE / CLAIR / AUTO (suit le système)
    ============================================================ */
-$('btn-theme-toggle').addEventListener('click', function(){
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  if (isDark) {
-    document.documentElement.removeAttribute('data-theme');
-    localStorage.setItem('tresorerie_theme', 'light');
-    this.textContent = '🌙';
-  } else {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    localStorage.setItem('tresorerie_theme', 'dark');
-    this.textContent = '☀️';
-  }
+// Cycle : clair -> sombre -> auto -> clair -> ...
+// L'icône affichée représente le mode ACTUEL (pas l'action au tap).
+function iconePourTheme(pref) {
+  return pref === 'dark' ? '🌙' : (pref === 'auto' ? '🌓' : '☀️');
+}
+function libellePourTheme(pref) {
+  return pref === 'dark' ? 'Sombre' : (pref === 'auto' ? 'Auto (système)' : 'Clair');
+}
+function systemeEstSombre() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function appliquerTheme(pref) {
+  const sombre = pref === 'dark' || (pref === 'auto' && systemeEstSombre());
+  if (sombre) document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  const btn = $('btn-theme-toggle');
+  btn.textContent = iconePourTheme(pref);
+  btn.title = 'Thème : ' + libellePourTheme(pref);
   // Les graphiques (Chart.js) ont leurs couleurs figées au moment du rendu :
-  // il faut les redessiner si on change de thème pendant qu'on les regarde.
-  if (state.bilanSousVue === 'analyse' && !$('bilan-vue-analyse').classList.contains('hidden')) {
+  // il faut les redessiner si le thème change pendant qu'on les regarde.
+  if (state.bilanSousVue === 'analyse' && $('bilan-vue-analyse') && !$('bilan-vue-analyse').classList.contains('hidden')) {
     renderAnalyse();
   }
+}
+
+$('btn-theme-toggle').addEventListener('click', function(){
+  const actuel = localStorage.getItem('tresorerie_theme') || 'auto';
+  const suivant = actuel === 'light' ? 'dark' : (actuel === 'dark' ? 'auto' : 'light');
+  localStorage.setItem('tresorerie_theme', suivant);
+  appliquerTheme(suivant);
 });
-if (localStorage.getItem('tresorerie_theme') === 'dark') $('btn-theme-toggle').textContent = '☀️';
+
+// Si le mode "Auto" est actif, suit les changements système en direct
+// (ex. bascule automatique du téléphone au coucher du soleil).
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){
+    if ((localStorage.getItem('tresorerie_theme') || 'auto') === 'auto') appliquerTheme('auto');
+  });
+}
+
+appliquerTheme(localStorage.getItem('tresorerie_theme') || 'auto');
 
 $('btn-logout').addEventListener('click', function(){
   if (confirm('Se déconnecter ?')) fbAuth.signOut();

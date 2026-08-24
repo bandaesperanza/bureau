@@ -1131,7 +1131,7 @@ function traduireErreurAuth(err) {
 /* ============================================================
    SÉCURITÉ — déconnexion automatique après inactivité (20 min)
    ============================================================ */
-const DELAI_INACTIVITE_MS = 20 * 60 * 1000;
+const DELAI_INACTIVITE_MS = 4 * 60 * 60 * 1000;
 let minuteurInactivite = null;
 
 function reinitialiserMinuteurInactivite() {
@@ -1139,7 +1139,7 @@ function reinitialiserMinuteurInactivite() {
   if (minuteurInactivite) clearTimeout(minuteurInactivite);
   minuteurInactivite = setTimeout(function(){
     fbAuth.signOut().then(function(){
-      toast("Déconnecté après 20 minutes d'inactivité.");
+      toast("Déconnecté après 4 heures d'inactivité.");
     });
   }, DELAI_INACTIVITE_MS);
 }
@@ -3368,7 +3368,11 @@ if ('serviceWorker' in navigator) {
 // Réessaie automatiquement la synchro des photos en attente au retour du réseau.
 window.addEventListener('online', function(){ synchroniserPhotosEnAttente(); });
 
-resetForm();
+// Note : pas d'appel initial à resetForm() ici — il tentait de générer un
+// numéro de transaction (écriture Firestore) dès le chargement de la page,
+// avant même la connexion, provoquant un "Missing or insufficient
+// permissions" visible sur l'écran de connexion. showView('form') appelle
+// déjà resetForm() au bon moment, une fois l'utilisateur authentifié.
 </script>
 </body>
 </html>

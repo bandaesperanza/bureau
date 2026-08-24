@@ -292,6 +292,19 @@
   .bilan-comparatif-col { flex: 1; text-align: center; }
   .bilan-comparatif-col + .bilan-comparatif-col { border-left: 1px solid var(--rule); }
 
+  /* Analyse */
+  .top-ligne {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: 13px;
+  }
+  .top-ligne:last-child { border-bottom: none; }
+  .top-rang {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%; background: var(--paper);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--ink-soft); margin-right: 8px; flex-shrink: 0;
+  }
+  .top-montant { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
+
   /* Banque */
   .compte-manuel-carte { margin-bottom: 10px; }
   .compte-manuel-entete { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; margin-bottom: 10px; }
@@ -661,6 +674,7 @@
       <div class="type-switch" style="margin-bottom:14px;">
         <button type="button" class="active" id="bilan-toggle-livre">📒 Livre de compte</button>
         <button type="button" id="bilan-toggle-annuel">📊 Bilan année</button>
+        <button type="button" id="bilan-toggle-analyse">📈 Analyse</button>
       </div>
 
       <div id="bilan-vue-livre">
@@ -758,6 +772,47 @@
           <div class="section-title">Recettes</div>
         </div>
         <div class="bilan-annuel-grid" id="bilan-annuel-grille"></div>
+      </div>
+
+      <div id="bilan-vue-analyse" class="hidden">
+        <div class="card">
+          <label class="field-label">Année (répartition, mensuel, top)</label>
+          <select id="analyse-annee"></select>
+        </div>
+
+        <div class="section-title">Évolution du solde par année</div>
+        <div class="card">
+          <canvas id="analyse-chart-evolution" height="220"></canvas>
+        </div>
+
+        <div class="section-title">Répartition par activité</div>
+        <div class="bilan-annuel-grid">
+          <div class="card">
+            <div class="tx-meta" style="text-align:center; margin-bottom:6px;">Dépenses</div>
+            <canvas id="analyse-chart-repartition-dep" height="220"></canvas>
+          </div>
+          <div class="card">
+            <div class="tx-meta" style="text-align:center; margin-bottom:6px;">Recettes</div>
+            <canvas id="analyse-chart-repartition-rec" height="220"></canvas>
+          </div>
+        </div>
+
+        <div class="section-title">Évolution mensuelle</div>
+        <div class="card">
+          <canvas id="analyse-chart-mensuel" height="240"></canvas>
+        </div>
+
+        <div class="section-title">Top catégories</div>
+        <div class="bilan-annuel-grid">
+          <div class="card">
+            <div class="tx-meta" style="text-align:center; margin-bottom:8px;">Dépenses</div>
+            <div id="analyse-top-depenses"></div>
+          </div>
+          <div class="card">
+            <div class="tx-meta" style="text-align:center; margin-bottom:8px;">Recettes</div>
+            <div id="analyse-top-recettes"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1560,18 +1615,23 @@ function renderLivre() {
    ============================================================ */
 $('bilan-toggle-livre').addEventListener('click', function(){ afficherSousVueBilan('livre'); });
 $('bilan-toggle-annuel').addEventListener('click', function(){ afficherSousVueBilan('annuel'); });
+$('bilan-toggle-analyse').addEventListener('click', function(){ afficherSousVueBilan('analyse'); });
 
 function afficherSousVueBilan(sousVue) {
   state.bilanSousVue = sousVue;
   $('bilan-toggle-livre').classList.toggle('active', sousVue === 'livre');
   $('bilan-toggle-annuel').classList.toggle('active', sousVue === 'annuel');
+  $('bilan-toggle-analyse').classList.toggle('active', sousVue === 'analyse');
   $('bilan-vue-livre').classList.toggle('hidden', sousVue !== 'livre');
   $('bilan-vue-annuel').classList.toggle('hidden', sousVue !== 'annuel');
+  $('bilan-vue-analyse').classList.toggle('hidden', sousVue !== 'analyse');
   if (sousVue === 'livre') {
     renderLivre();
-  } else {
+  } else if (sousVue === 'annuel') {
     remplirBilanAnnuelAnnees();
     renderBilanAnnuelEcran();
+  } else {
+    renderAnalyse();
   }
 }
 
@@ -1742,6 +1802,171 @@ function renderBilanAnnuelEcran() {
     grille.appendChild(nomRec && recettesParNom[nomRec] ? construireCarteBilan(recettesParNom[nomRec], 'recette', indexRecComp, anneeComp) : document.createElement('div'));
   });
 }
+
+/* ============================================================
+   ANALYSE — évolution, répartition, mensuel, top catégories
+   ============================================================ */
+const PALETTE_ACTIVITES = ['#2A2560', '#C4302A', '#2E7D4E', '#D9574B', '#5B5770', '#9C97D9', '#D9A84A', '#6E8FB0', '#B0567A', '#7A9E5E'];
+let graphiqueEvolution = null, graphiqueRepartitionDep = null, graphiqueRepartitionRec = null, graphiqueMensuel = null;
+
+function remplirAnalyseAnnees() {
+  const anneeCourante = String(new Date().getFullYear());
+  const annees = new Set([anneeCourante]);
+  state.transactions.forEach(function(t){ if (t.date) annees.add(t.date.slice(0, 4)); });
+  const anneesTriees = Array.from(annees).sort().reverse();
+  const sel = $('analyse-annee');
+  const valeurActuelle = sel.value || anneeCourante;
+  sel.innerHTML = '';
+  anneesTriees.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    sel.appendChild(opt);
+  });
+  sel.value = anneesTriees.indexOf(valeurActuelle) !== -1 ? valeurActuelle : anneeCourante;
+}
+$('analyse-annee').addEventListener('change', renderAnalyse);
+
+function calculerEvolutionSolde() {
+  const annees = new Set();
+  state.transactions.forEach(function(t){ if (t.date) annees.add(t.date.slice(0, 4)); });
+  const anneesTriees = Array.from(annees).sort();
+  const soldes = anneesTriees.map(function(a){
+    let rec = 0, dep = 0;
+    state.transactions.forEach(function(t){
+      if ((t.date || '').slice(0, 4) !== a) return;
+      if (t.type === 'recette') rec += Number(t.montant) || 0; else dep += Number(t.montant) || 0;
+    });
+    return rec - dep;
+  });
+  return { annees: anneesTriees, soldes: soldes };
+}
+
+function calculerRepartitionActivite(annee, type) {
+  const lignes = state.transactions.filter(function(t){ return t.type === type && (t.date || '').slice(0, 4) === annee; });
+  const parActivite = {};
+  lignes.forEach(function(t){
+    parActivite[t.activite] = (parActivite[t.activite] || 0) + (Number(t.montant) || 0);
+  });
+  const labels = Object.keys(parActivite).filter(function(k){ return parActivite[k] > 0; });
+  labels.sort(function(a, b){ return parActivite[b] - parActivite[a]; });
+  return { labels: labels, data: labels.map(function(l){ return parActivite[l]; }) };
+}
+
+function calculerEvolutionMensuelle(annee) {
+  const depenses = new Array(12).fill(0), recettes = new Array(12).fill(0);
+  state.transactions.forEach(function(t){
+    if ((t.date || '').slice(0, 4) !== annee) return;
+    const mois = parseInt(t.date.slice(5, 7), 10) - 1;
+    if (mois < 0 || mois > 11) return;
+    if (t.type === 'recette') recettes[mois] += Number(t.montant) || 0; else depenses[mois] += Number(t.montant) || 0;
+  });
+  return { depenses: depenses, recettes: recettes };
+}
+
+function calculerTopCategories(annee, type, n) {
+  const lignes = state.transactions.filter(function(t){ return t.type === type && (t.date || '').slice(0, 4) === annee; });
+  const parCle = {};
+  lignes.forEach(function(t){
+    const cle = t.activite + (t.sousActivite ? ' · ' + t.sousActivite : '');
+    parCle[cle] = (parCle[cle] || 0) + (Number(t.montant) || 0);
+  });
+  const cles = Object.keys(parCle).sort(function(a, b){ return parCle[b] - parCle[a]; });
+  return cles.slice(0, n).map(function(c){ return { nom: c, total: parCle[c] }; });
+}
+
+function detruireGraphiques() {
+  [graphiqueEvolution, graphiqueRepartitionDep, graphiqueRepartitionRec, graphiqueMensuel].forEach(function(g){
+    if (g) g.destroy();
+  });
+  graphiqueEvolution = graphiqueRepartitionDep = graphiqueRepartitionRec = graphiqueMensuel = null;
+}
+
+function renderAnalyse() {
+  remplirAnalyseAnnees();
+  const annee = $('analyse-annee').value || String(new Date().getFullYear());
+
+  chargerLibChartJS().then(function(){
+    detruireGraphiques();
+    Chart.defaults.font.family = "'Inter', sans-serif";
+    Chart.defaults.color = '#5B5770';
+
+    // --- Évolution du solde par année ---
+    const evo = calculerEvolutionSolde();
+    graphiqueEvolution = new Chart($('analyse-chart-evolution'), {
+      type: 'line',
+      data: {
+        labels: evo.annees,
+        datasets: [{
+          label: 'Solde', data: evo.soldes,
+          borderColor: '#2A2560', backgroundColor: 'rgba(42,37,96,0.1)',
+          fill: true, tension: 0.25, pointBackgroundColor: '#2A2560'
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: function(v){ return formatMoney(v); } } } }
+      }
+    });
+
+    // --- Répartition par activité (dépenses / recettes) ---
+    function creerCamembert(canvas, repartition) {
+      return new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+          labels: repartition.labels,
+          datasets: [{ data: repartition.data, backgroundColor: PALETTE_ACTIVITES, borderColor: '#FFFFFF', borderWidth: 2 }]
+        },
+        options: {
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 10 } } },
+            tooltip: { callbacks: { label: function(ctx){ return ctx.label + ' : ' + formatMoney(ctx.parsed); } } }
+          }
+        }
+      });
+    }
+    graphiqueRepartitionDep = creerCamembert($('analyse-chart-repartition-dep'), calculerRepartitionActivite(annee, 'depense'));
+    graphiqueRepartitionRec = creerCamembert($('analyse-chart-repartition-rec'), calculerRepartitionActivite(annee, 'recette'));
+
+    // --- Évolution mensuelle ---
+    const mensuel = calculerEvolutionMensuelle(annee);
+    const moisLabels = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+    graphiqueMensuel = new Chart($('analyse-chart-mensuel'), {
+      type: 'bar',
+      data: {
+        labels: moisLabels,
+        datasets: [
+          { label: 'Recettes', data: mensuel.recettes, backgroundColor: '#2E7D4E' },
+          { label: 'Dépenses', data: mensuel.depenses, backgroundColor: '#C4302A' }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 10 } } } },
+        scales: { y: { ticks: { callback: function(v){ return formatMoney(v); } } } }
+      }
+    });
+
+    // --- Top catégories ---
+    function rendreTop(id, liste) {
+      const el = $(id);
+      el.innerHTML = '';
+      if (liste.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:10px;">Aucune donnée.</div>'; return; }
+      liste.forEach(function(item, i){
+        const ligne = document.createElement('div');
+        ligne.className = 'top-ligne';
+        ligne.innerHTML =
+          '<span style="display:flex; align-items:center; min-width:0;"><span class="top-rang">' + (i + 1) + '</span>' +
+          '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escHtml(item.nom) + '</span></span>' +
+          '<span class="top-montant">' + formatMoney(item.total) + '</span>';
+        el.appendChild(ligne);
+      });
+    }
+    rendreTop('analyse-top-depenses', calculerTopCategories(annee, 'depense', 5));
+    rendreTop('analyse-top-recettes', calculerTopCategories(annee, 'recette', 5));
+  }).catch(function(err){
+    toast('Erreur graphiques : ' + err.message);
+  });
+}
+
 
 /* ============================================================
    BANQUE — comptes bancaires (courant calculé, livrets manuels) + transferts
@@ -2727,6 +2952,16 @@ function chargerLibExcelJS() {
   promesseLibExcelJS = chargerScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js')
     .catch(function(err){ promesseLibExcelJS = null; throw err; });
   return promesseLibExcelJS;
+}
+
+// Chargement paresseux de Chart.js (onglet Analyse uniquement).
+let promesseLibChartJS = null;
+function chargerLibChartJS() {
+  if (window.Chart) return Promise.resolve();
+  if (promesseLibChartJS) return promesseLibChartJS;
+  promesseLibChartJS = chargerScript('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js')
+    .catch(function(err){ promesseLibChartJS = null; throw err; });
+  return promesseLibChartJS;
 }
 
 // Convertit une image (photo ou galerie) en PDF une page, centrée avec une

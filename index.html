@@ -1113,6 +1113,11 @@ $('btn-theme-toggle').addEventListener('click', function(){
     localStorage.setItem('tresorerie_theme', 'dark');
     this.textContent = '☀️';
   }
+  // Les graphiques (Chart.js) ont leurs couleurs figées au moment du rendu :
+  // il faut les redessiner si on change de thème pendant qu'on les regarde.
+  if (state.bilanSousVue === 'analyse' && !$('bilan-vue-analyse').classList.contains('hidden')) {
+    renderAnalyse();
+  }
 });
 if (localStorage.getItem('tresorerie_theme') === 'dark') $('btn-theme-toggle').textContent = '☀️';
 
@@ -1912,8 +1917,22 @@ function renderAnalyse() {
       Chart.register(window.ChartDataLabels);
     }
     detruireGraphiques();
+
+    // Les graphiques doivent s'adapter au thème : en sombre, le bleu marine
+    // habituel devient quasi invisible sur les cartes (elles-mêmes bleu
+    // marine foncé), et le texte gris clair par défaut manque de contraste.
+    const modeSombre = document.documentElement.getAttribute('data-theme') === 'dark';
+    const couleurTexte = modeSombre ? '#D8D5E8' : '#5B5770';
+    const couleurGrille = modeSombre ? 'rgba(216,213,232,0.14)' : 'rgba(91,87,112,0.1)';
+    const couleurLigne = modeSombre ? '#9B93FF' : '#2A2560';
+    const couleurLigneFond = modeSombre ? 'rgba(155,147,255,0.18)' : 'rgba(42,37,96,0.1)';
+    const couleurBordureCamembert = modeSombre ? '#201D3D' : '#FFFFFF';
+    const palette = modeSombre
+      ? ['#8B85E6', '#FF8A7A', '#5FC98A', '#FFA98F', '#B8B4E0', '#C9C4FF', '#F0C868', '#8FC4E8', '#E896B8', '#B8E098']
+      : PALETTE_ACTIVITES;
+
     Chart.defaults.font.family = "'Inter', sans-serif";
-    Chart.defaults.color = '#5B5770';
+    Chart.defaults.color = couleurTexte;
 
     // --- Évolution du résultat par année ---
     const evo = calculerEvolutionSolde();
@@ -1923,14 +1942,17 @@ function renderAnalyse() {
         labels: evo.annees,
         datasets: [{
           label: 'Résultat', data: evo.soldes,
-          borderColor: '#2A2560', backgroundColor: 'rgba(42,37,96,0.1)',
-          fill: true, tension: 0.25, pointBackgroundColor: '#2A2560'
+          borderColor: couleurLigne, backgroundColor: couleurLigneFond,
+          fill: true, tension: 0.25, pointBackgroundColor: couleurLigne
         }]
       },
       options: {
         maintainAspectRatio: false,
         plugins: { legend: { display: false }, datalabels: { display: false } },
-        scales: { y: { ticks: { callback: function(v){ return formatMoney(v); } } } }
+        scales: {
+          x: { ticks: { color: couleurTexte }, grid: { color: couleurGrille } },
+          y: { ticks: { color: couleurTexte, callback: function(v){ return formatMoney(v); } }, grid: { color: couleurGrille } }
+        }
       }
     });
 
@@ -1941,15 +1963,15 @@ function renderAnalyse() {
         type: 'doughnut',
         data: {
           labels: repartition.labels,
-          datasets: [{ data: repartition.data, backgroundColor: PALETTE_ACTIVITES, borderColor: '#FFFFFF', borderWidth: 2 }]
+          datasets: [{ data: repartition.data, backgroundColor: palette, borderColor: couleurBordureCamembert, borderWidth: 2 }]
         },
         options: {
           maintainAspectRatio: false,
           plugins: {
-            legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 10 } } },
+            legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 10 }, color: couleurTexte } },
             tooltip: { callbacks: { label: function(ctx){ return ctx.label + ' : ' + formatMoney(ctx.parsed); } } },
             datalabels: {
-              color: '#fff', font: { weight: '700', size: 11 },
+              color: modeSombre ? '#15122E' : '#fff', font: { weight: '700', size: 11 },
               formatter: function(value){ return total ? Math.round(value / total * 100) + '%' : ''; }
             }
           }
@@ -1967,13 +1989,16 @@ function renderAnalyse() {
       data: {
         labels: moisLabels,
         datasets: [
-          { label: 'Recettes', data: mensuel.recettes, backgroundColor: '#2E7D4E' },
-          { label: 'Dépenses', data: mensuel.depenses, backgroundColor: '#C4302A' }
+          { label: 'Recettes', data: mensuel.recettes, backgroundColor: modeSombre ? '#5FC98A' : '#2E7D4E' },
+          { label: 'Dépenses', data: mensuel.depenses, backgroundColor: modeSombre ? '#FF8A7A' : '#C4302A' }
         ]
       },
       options: {
-        plugins: { legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 10 } } }, datalabels: { display: false } },
-        scales: { y: { ticks: { callback: function(v){ return formatMoney(v); } } } },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 10 }, color: couleurTexte } }, datalabels: { display: false } },
+        scales: {
+          x: { ticks: { color: couleurTexte }, grid: { color: couleurGrille } },
+          y: { ticks: { color: couleurTexte, callback: function(v){ return formatMoney(v); } }, grid: { color: couleurGrille } }
+        },
         maintainAspectRatio: false
       }
     });

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="theme-color" content="#15122E">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Trésorerie">
 <title>Trésorerie — Banda Esperanza</title>
 <link rel="manifest" href="./manifest.json">
@@ -116,6 +116,24 @@
     height: 100dvh; height: 100vh; /* repli pour les navigateurs sans dvh */
     overflow: hidden;
     position: relative; /* ancre pour le bouton + flottant, sans utiliser "fixed" */
+  }
+
+  /* ---------- Correctif zone encoche/dynamic island (iOS 18) ----------
+     Sur iOS 18, la zone sous l'encoche affiche un flou "verre dépoli" qui
+     capture ce qu'il y a en dessous. Si cette zone laisse transparaître la
+     jonction entre le fond clair de la page et le dégradé sombre de l'en-tête,
+     le flou produit une bande floue disgracieuse. On peint donc explicitement
+     cette bande avec le même dégradé que l'en-tête, en amont de tout le reste
+     (position fixed, tout en haut), pour qu'il n'y ait plus que du navy à flouter. */
+  @supports (padding: max(0px)) {
+    body:has(#app-shell:not(.hidden))::before {
+      content: '';
+      position: fixed; top: 0; left: 0; right: 0;
+      height: env(safe-area-inset-top);
+      background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
+      z-index: 1000;
+      pointer-events: none;
+    }
   }
 
   /* ---------- En-tête ---------- */
@@ -738,6 +756,12 @@
 
     <!-- ---------- Banque (comptes bancaires + transferts) ---------- -->
     <section id="view-comptes" class="view">
+      <div class="card balance-card">
+        <div class="balance-label">Total sur tous les comptes</div>
+        <div class="balance-amount" id="comptes-total" style="font-size:32px;">0,00 €</div>
+        <div class="tx-meta" id="comptes-total-detail" style="margin-top:6px;"></div>
+      </div>
+
       <div class="card">
         <label class="field-label">Année (compte courant)</label>
         <select id="comptes-annee"></select>
@@ -1744,6 +1768,19 @@ function renderComptes() {
   remplirComptesAnnees();
   remplirTransfertSelects();
   const annee = $('comptes-annee').value || String(new Date().getFullYear());
+
+  // Le total "à date" s'appuie toujours sur l'année civile en cours pour le
+  // compte courant (même si l'utilisateur consulte une année passée dans le
+  // sélecteur ci-dessous, qui sert à l'historique/l'audit).
+  const anneeReelle = String(new Date().getFullYear());
+  const detailReel = calculerSoldeCompteCourant(anneeReelle);
+  const total = detailReel.solde + state.comptesBancaires.livretA + state.comptesBancaires.livretSocietaire + state.comptesBancaires.compteTitre;
+  const totalEl = $('comptes-total');
+  totalEl.textContent = formatMoney(total);
+  totalEl.classList.toggle('negative', total < 0);
+  $('comptes-total-detail').textContent =
+    'Compte courant ' + formatMoney(detailReel.solde) + ' · Livret A ' + formatMoney(state.comptesBancaires.livretA) +
+    ' · Sociétaire ' + formatMoney(state.comptesBancaires.livretSocietaire) + ' · Titre ' + formatMoney(state.comptesBancaires.compteTitre);
 
   const detail = calculerSoldeCompteCourant(annee);
   const soldeEl = $('compte-courant-solde');

@@ -908,6 +908,14 @@ const DOSSIERS_ANNEE_COMPTABLE = [
 firebase.initializeApp(firebaseConfig);
 const fbAuth = firebase.auth();
 const fbDb = firebase.firestore();
+
+// Sécurité : la session ne doit pas survivre à une fermeture complète de
+// l'app — "SESSION" (au lieu du défaut "LOCAL") efface la connexion dès que
+// l'app/l'onglet est réellement fermé, pas juste mis en arrière-plan.
+fbAuth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(function(err){
+  console.warn('Persistance de session non appliquée :', err);
+});
+
 // Persistance offline : les écritures faites hors-ligne sont mises en
 // file d'attente et synchronisées automatiquement au retour du réseau.
 fbDb.enablePersistence({ synchronizeTabs: true }).catch(function(err){
@@ -1120,6 +1128,34 @@ function traduireErreurAuth(err) {
   return map[err.code] || ('Erreur : ' + err.message);
 }
 
+/* ============================================================
+   SÉCURITÉ — déconnexion automatique après inactivité (20 min)
+   ============================================================ */
+const DELAI_INACTIVITE_MS = 20 * 60 * 1000;
+let minuteurInactivite = null;
+
+function reinitialiserMinuteurInactivite() {
+  if (!state.user) return;
+  if (minuteurInactivite) clearTimeout(minuteurInactivite);
+  minuteurInactivite = setTimeout(function(){
+    fbAuth.signOut().then(function(){
+      toast("Déconnecté après 20 minutes d'inactivité.");
+    });
+  }, DELAI_INACTIVITE_MS);
+}
+
+function demarrerMinuteurInactivite() {
+  reinitialiserMinuteurInactivite();
+}
+
+function arreterMinuteurInactivite() {
+  if (minuteurInactivite) { clearTimeout(minuteurInactivite); minuteurInactivite = null; }
+}
+
+['click', 'touchstart', 'keydown', 'scroll'].forEach(function(evt){
+  document.addEventListener(evt, reinitialiserMinuteurInactivite, { passive: true });
+});
+
 fbAuth.onAuthStateChanged(function(user){
   $('boot-screen').classList.add('hidden');
   if (unsubTx) { unsubTx(); unsubTx = null; }
@@ -1129,12 +1165,14 @@ fbAuth.onAuthStateChanged(function(user){
 
   if (!user) {
     state.user = null; state.role = null;
+    arreterMinuteurInactivite();
     $('view-login').classList.remove('hidden');
     $('view-pending').classList.add('hidden');
     $('app-shell').classList.add('hidden');
     return;
   }
 
+  demarrerMinuteurInactivite();
   state.user = { uid: user.uid, email: user.email };
 
   fbDb.collection('utilisateurs').doc(user.uid).onSnapshot(function(doc){

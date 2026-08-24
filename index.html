@@ -550,7 +550,7 @@
 
       <div class="card" style="margin-top:14px;">
         <label class="field-label">Numéro</label>
-        <div class="date-display" id="form-numero-display" style="font-family:'IBM Plex Mono', monospace; color: var(--ink-soft);">…</div>
+        <input type="text" id="form-numero" style="font-family:'IBM Plex Mono', monospace;" placeholder="Génération…">
 
         <label class="field-label">Date</label>
         <div class="date-field-wrap">
@@ -860,6 +860,16 @@
     </div>
 
     <div id="modal-photo-link" class="tx-meta hidden" style="margin-top:12px;"></div>
+
+    <div id="modal-photo-ajout" class="hidden" style="margin-top:12px;">
+      <input type="file" accept="image/*" capture="environment" id="modal-input-photo-camera" class="hidden">
+      <input type="file" accept="image/*" id="modal-input-photo-gallery" class="hidden">
+      <div class="photo-buttons">
+        <button type="button" class="btn btn-secondary" id="modal-btn-take-photo" style="width:auto; flex:1;">📷 Photo</button>
+        <button type="button" class="btn btn-secondary" id="modal-btn-pick-photo" style="width:auto; flex:1;">🖼️ Galerie</button>
+      </div>
+      <div id="modal-photo-ajout-status" class="tx-meta" style="margin-top:6px;"></div>
+    </div>
 
     <div style="display:flex; gap:8px; margin-top:18px;">
       <button class="btn btn-secondary" id="btn-modal-close" style="width:auto; flex:1;">Fermer</button>
@@ -1239,7 +1249,7 @@ function genererNumeroTransaction(annee) {
       return nouveau;
     });
   }).then(function(nouveau){
-    return String(annee) + '-' + String(nouveau).padStart(4, '0');
+    return 'F' + String(annee) + '-' + String(nouveau).padStart(4, '0');
   });
 }
 
@@ -2467,23 +2477,27 @@ function resetForm() {
   $('form-photo-preview').classList.add('hidden');
   $('form-photo-status').textContent = '';
   setFormType(state.formType);
+  state.formNumeroModifie = false;
   rafraichirNumeroFormulaire();
 }
 
 // Régénère (réserve) un numéro dès que l'année de la date saisie change.
 function rafraichirNumeroFormulaire() {
   const annee = ($('form-date').value || todayIso()).slice(0, 4);
+  if (state.formNumeroModifie) return; // l'utilisateur a pris la main, on ne régénère plus automatiquement
   if (state.formNumeroAnnee === annee && state.formNumero) return;
-  $('form-numero-display').textContent = 'Génération…';
+  $('form-numero').value = '';
+  $('form-numero').placeholder = 'Génération…';
   genererNumeroTransaction(annee).then(function(numero){
     state.formNumero = numero;
     state.formNumeroAnnee = annee;
-    $('form-numero-display').textContent = numero;
+    $('form-numero').value = numero;
   }).catch(function(err){
-    $('form-numero-display').textContent = '—';
+    $('form-numero').placeholder = '—';
     toast('Numéro non généré : ' + err.message);
   });
 }
+$('form-numero').addEventListener('input', function(){ state.formNumeroModifie = true; });
 
 $('form-date').addEventListener('change', rafraichirNumeroFormulaire);
 $('form-date').addEventListener('input', rafraichirNumeroFormulaire);
@@ -2517,20 +2531,21 @@ function enregistrerTransaction() {
   const sousActivite = $('form-sousactivite').value;
   const moyenPaiement = $('form-moyen').value;
   const libelle = $('form-libelle').value.trim();
+  const numero = $('form-numero').value.trim(); // valeur affichée, potentiellement modifiée à la main
 
   if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
   if (!activite) { toast('Choisis une activité.'); return; }
   if (!sousActivite) { toast('Choisis une sous-activité.'); return; }
   if (!moyenPaiement) { toast('Choisis un moyen de paiement.'); return; }
   if (!libelle) { toast("Le libellé de l'opération est obligatoire."); return; }
-  if (!state.formNumero) { toast('Numéro pas encore généré, patiente un instant.'); return; }
+  if (!numero) { toast('Numéro pas encore généré, patiente un instant.'); return; }
 
   const btn = $('btn-save-tx');
   btn.disabled = true;
   btn.textContent = 'Enregistrement…';
 
   const txData = {
-    numero: state.formNumero,
+    numero: numero,
     type: state.formType,
     date: date,
     montant: montant,
@@ -2714,49 +2729,81 @@ function chargerLibExcelJS() {
   return promesseLibExcelJS;
 }
 
-// Déduit une extension de fichier correcte, à partir du nom d'origine ou du type MIME.
-function extensionDepuisFichier(nomFichier, mimeType) {
-  const m = (nomFichier || '').match(/\.[a-zA-Z0-9]+$/);
-  if (m) return m[0];
-  const correspondances = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/heic': '.heic', 'image/webp': '.webp' };
-  return correspondances[mimeType] || '.jpg';
+// Convertit une image (photo ou galerie) en PDF une page, centrée avec une
+// petite marge — pour que tous les justificatifs soient archivés au même
+// format dans Drive, qu'ils viennent d'une photo ou d'un scan.
+function convertirImageEnPDF(blob) {
+  return chargerLibPDF().then(function(){
+    return new Promise(function(resolve, reject){
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = function(){
+        URL.revokeObjectURL(url);
+        try {
+          const jsPDF = window.jspdf.jsPDF;
+          const largeurPx = img.naturalWidth, hauteurPx = img.naturalHeight;
+          const orientation = largeurPx >= hauteurPx ? 'landscape' : 'portrait';
+          const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: orientation });
+          const pageW = doc.internal.pageSize.getWidth();
+          const pageH = doc.internal.pageSize.getHeight();
+          const marge = 8;
+          const ratio = Math.min((pageW - marge * 2) / largeurPx, (pageH - marge * 2) / hauteurPx);
+          const imgW = largeurPx * ratio, imgH = hauteurPx * ratio;
+          const x = (pageW - imgW) / 2, y = (pageH - imgH) / 2;
+          const format = blob.type === 'image/png' ? 'PNG' : 'JPEG';
+          const reader = new FileReader();
+          reader.onload = function(){
+            try {
+              doc.addImage(reader.result, format, x, y, imgW, imgH);
+              resolve(doc.output('blob'));
+            } catch (e) { reject(e); }
+          };
+          reader.onerror = function(){ reject(new Error('Lecture image impossible.')); };
+          reader.readAsDataURL(blob);
+        } catch (e) { reject(e); }
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('Image illisible.')); };
+      img.src = url;
+    });
+  });
 }
 
 function uploaderFactureDrive(blob, nomFichier, type, activite, sousActivite, date, libelle) {
   const annee = (date || todayIso()).slice(0, 4);
-  return obtenirDossierActivite(type, activite, annee).then(function(folderId){
-    const extension = extensionDepuisFichier(nomFichier, blob.type);
-    const libelleAssaini = (libelle || '').trim().replace(/[\/\\]/g, '-').slice(0, 40);
-    const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + (libelleAssaini ? '_' + libelleAssaini : '') + extension;
-    const metadata = { name: nomFinal, parents: [folderId] };
-    const boundary = '-------tresorerie' + Date.now();
-    return blob.arrayBuffer().then(function(buf){
-      const encoder = new TextEncoder();
-      const head = encoder.encode(
-        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
-        '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.type || 'image/jpeg') + '\r\n\r\n'
-      );
-      const tail = encoder.encode('\r\n--' + boundary + '--');
-      const body = new Blob([head, buf, tail]);
-      return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + state.driveAccessToken,
-          'Content-Type': 'multipart/related; boundary=' + boundary
-        },
-        body: body
+  return convertirImageEnPDF(blob).then(function(blobPDF){
+    return obtenirDossierActivite(type, activite, annee).then(function(folderId){
+      const libelleAssaini = (libelle || '').trim().replace(/[\/\\]/g, '-').slice(0, 40);
+      const nomFinal = date + '_' + sousActivite.replace(/[\/\\]/g, '-') + (libelleAssaini ? '_' + libelleAssaini : '') + '.pdf';
+      const metadata = { name: nomFinal, parents: [folderId] };
+      const boundary = '-------tresorerie' + Date.now();
+      return blobPDF.arrayBuffer().then(function(buf){
+        const encoder = new TextEncoder();
+        const head = encoder.encode(
+          '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
+          '\r\n--' + boundary + '\r\nContent-Type: application/pdf\r\n\r\n'
+        );
+        const tail = encoder.encode('\r\n--' + boundary + '--');
+        const body = new Blob([head, buf, tail]);
+        return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + state.driveAccessToken,
+            'Content-Type': 'multipart/related; boundary=' + boundary
+          },
+          body: body
+        });
+      }).then(function(r){
+        if (!r.ok) return r.text().then(function(t){ throw new Error('Upload Drive ' + r.status + ' : ' + t); });
+        return r.json();
+      }).then(function(fileInfo){
+        // Rend le fichier consultable via son lien, sans que le lecteur ait besoin
+        // d'accès au Drive de la personne qui a fait l'upload.
+        return driveFetch('https://www.googleapis.com/drive/v3/files/' + fileInfo.id + '/permissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'reader', type: 'anyone' })
+        }).catch(function(e){ console.warn('Permission publique échouée :', e); }).then(function(){ return fileInfo; });
       });
-    }).then(function(r){
-      if (!r.ok) return r.text().then(function(t){ throw new Error('Upload Drive ' + r.status + ' : ' + t); });
-      return r.json();
-    }).then(function(fileInfo){
-      // Rend le fichier consultable via son lien, sans que le lecteur ait besoin
-      // d'accès au Drive de la personne qui a fait l'upload.
-      return driveFetch('https://www.googleapis.com/drive/v3/files/' + fileInfo.id + '/permissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'reader', type: 'anyone' })
-      }).catch(function(e){ console.warn('Permission publique échouée :', e); }).then(function(){ return fileInfo; });
     });
   });
 }
@@ -2810,6 +2857,7 @@ function synchroniserPhotosEnAttente() {
    MODALE TRANSACTION — détail (tous) / édition & suppression (admin)
    ============================================================ */
 let modalTxId = null;
+let modalTxCourante = null;
 let modalType = 'depense';
 
 function ouvrirModalTransaction(tx) {
@@ -2850,6 +2898,12 @@ function ouvrirModalTransaction(tx) {
   } else {
     photoLink.classList.add('hidden');
   }
+
+  // Ajouter un justificatif après coup : uniquement pour l'admin, et
+  // seulement si la transaction n'en a pas déjà un.
+  $('modal-photo-ajout').classList.toggle('hidden', !isAdmin || !!tx.driveFileUrl);
+  $('modal-photo-ajout-status').textContent = '';
+  modalTxCourante = tx;
 
   $('tx-modal-backdrop').classList.remove('hidden');
 }
@@ -2922,6 +2976,45 @@ $('modal-sousactivite').addEventListener('change', function(){
     remplirModalSousActivites();
   });
 });
+
+// Ajout d'un justificatif après coup sur une transaction qui n'en a pas.
+$('modal-btn-take-photo').addEventListener('click', function(){ $('modal-input-photo-camera').click(); });
+$('modal-btn-pick-photo').addEventListener('click', function(){ $('modal-input-photo-gallery').click(); });
+
+function gererAjoutJustificatifModal(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !modalTxCourante) return;
+  const tx = modalTxCourante;
+  const statusEl = $('modal-photo-ajout-status');
+  statusEl.textContent = 'Connexion Drive…';
+  let resultatUpload = null;
+
+  // Drive doit être sollicité tout de suite, pendant que le geste utilisateur
+  // (le choix du fichier) est encore valide, sinon la popup Google échoue.
+  ensureDriveConnecte().then(function(ok){
+    if (!ok) throw new Error('Connexion Drive nécessaire.');
+    statusEl.textContent = 'Envoi du justificatif…';
+    return uploaderFactureDrive(file, file.name || 'justificatif.jpg', tx.type, tx.activite, tx.sousActivite, tx.date, tx.libelle);
+  }).then(function(res){
+    resultatUpload = res;
+    return fbDb.collection('transactions').doc(tx.id).update({
+      driveFileId: res.id, driveFileUrl: res.webViewLink, driveFileName: res.name
+    });
+  }).then(function(){
+    statusEl.textContent = 'Justificatif ajouté.';
+    toast('Justificatif ajouté à la transaction.');
+    $('modal-photo-ajout').classList.add('hidden');
+    const photoLink = $('modal-photo-link');
+    photoLink.innerHTML = '<a href="' + resultatUpload.webViewLink + '" target="_blank" style="color:var(--focus);">📎 Voir le justificatif</a>';
+    photoLink.classList.remove('hidden');
+  }).catch(function(err){
+    statusEl.textContent = 'Erreur : ' + err.message;
+    toast('Erreur : ' + err.message);
+  });
+}
+$('modal-input-photo-camera').addEventListener('change', gererAjoutJustificatifModal);
+$('modal-input-photo-gallery').addEventListener('change', gererAjoutJustificatifModal);
 
 $('btn-modal-save').addEventListener('click', function(){
   if (!modalTxId) return;

@@ -1072,6 +1072,20 @@ function todayIso() {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
+// Remonte le défilement en haut, quel que soit l'élément qui défile
+// réellement selon le navigateur/appareil — reporté à la frame suivante
+// car un changement de contenu synchrone n'est pas toujours pris en compte
+// immédiatement par le moteur de rendu.
+function remonterEnHaut() {
+  requestAnimationFrame(function(){
+    const m = document.querySelector('main');
+    if (m) m.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+  });
+}
+
 function showView(name) {
   document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
   const v = $('view-' + name);
@@ -1079,6 +1093,7 @@ function showView(name) {
   document.querySelectorAll('.tab-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.view === name);
   });
+  remonterEnHaut();
   if (name === 'form') resetForm();
   if (name === 'bilan') afficherSousVueBilan(state.bilanSousVue);
   if (name === 'comptes') renderComptes();
@@ -1631,6 +1646,7 @@ function afficherSousVueBilan(sousVue) {
   $('bilan-vue-livre').classList.toggle('hidden', sousVue !== 'livre');
   $('bilan-vue-annuel').classList.toggle('hidden', sousVue !== 'annuel');
   $('bilan-vue-analyse').classList.toggle('hidden', sousVue !== 'analyse');
+  remonterEnHaut();
   if (sousVue === 'livre') {
     renderLivre();
   } else if (sousVue === 'annuel') {
@@ -3601,6 +3617,7 @@ function afficherPageAdmin(page) {
   $('admin-page-utilisateurs').classList.toggle('hidden', page !== 'utilisateurs');
   $('admin-page-activites').classList.toggle('hidden', page !== 'activites');
   $('admin-page-grandlivre').classList.toggle('hidden', page !== 'grandlivre');
+  remonterEnHaut();
 }
 $('admin-toggle-utilisateurs').addEventListener('click', function(){ afficherPageAdmin('utilisateurs'); });
 $('admin-toggle-activites').addEventListener('click', function(){ afficherPageAdmin('activites'); });

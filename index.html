@@ -529,12 +529,18 @@
       <div class="chip-row" id="annee-chips"></div>
 
       <div class="card balance-card">
-        <div class="balance-label">Solde actuel</div>
+        <div class="balance-label">Résultat</div>
         <div class="balance-amount" id="balance-total">0,00 €</div>
         <div class="balance-sub">
           <span class="in" id="balance-in">+ 0,00 €</span>
           <span class="out" id="balance-out">− 0,00 €</span>
         </div>
+
+        <div style="border-top:1px solid var(--rule); margin:16px 0;"></div>
+
+        <div class="balance-label">Argent disponible aujourd'hui</div>
+        <div class="balance-amount" id="dashboard-tresorerie-total" style="font-size:26px;">0,00 €</div>
+        <div class="tx-meta" id="dashboard-tresorerie-detail" style="margin-top:4px;"></div>
       </div>
 
       <div class="chip-row" id="filter-chips">
@@ -1482,6 +1488,19 @@ function renderDashboard() {
   $('balance-in').textContent = '+ ' + formatMoney(totalIn);
   $('balance-out').textContent = '− ' + formatMoney(totalOut);
 
+  // Argent réellement disponible aujourd'hui, tous comptes confondus —
+  // toujours calculé sur l'année civile en cours, indépendamment du filtre
+  // d'année choisi ci-dessus (qui ne concerne que le résultat/l'historique).
+  const anneeReelle = String(new Date().getFullYear());
+  const soldeCompteCourant = calculerSoldeCompteCourant(anneeReelle).solde;
+  const totalTresorerie = soldeCompteCourant + state.comptesBancaires.livretA + state.comptesBancaires.livretSocietaire + state.comptesBancaires.compteTitre;
+  const tresoEl = $('dashboard-tresorerie-total');
+  tresoEl.textContent = formatMoney(totalTresorerie);
+  tresoEl.classList.toggle('negative', totalTresorerie < 0);
+  $('dashboard-tresorerie-detail').textContent =
+    'Compte courant ' + formatMoney(soldeCompteCourant) + ' · Livret A ' + formatMoney(state.comptesBancaires.livretA) +
+    ' · Sociétaire ' + formatMoney(state.comptesBancaires.livretSocietaire) + ' · Titre ' + formatMoney(state.comptesBancaires.compteTitre);
+
   const liste = state.filtre === 'tout' ? transactionsAnnee : transactionsAnnee.filter(function(t){ return t.type === state.filtre; });
   const listEl = $('tx-list');
   listEl.innerHTML = '';
@@ -2063,6 +2082,7 @@ function demarrerEcouteComptesBancaires() {
       soldeInitialCompteCourant: data.soldeInitialCompteCourant || {}
     };
     if (document.getElementById('view-comptes').classList.contains('active')) renderComptes();
+    if (document.getElementById('view-dashboard').classList.contains('active')) renderDashboard();
   }, function(err){ console.error('Ecoute comptesBancaires :', err); });
 }
 

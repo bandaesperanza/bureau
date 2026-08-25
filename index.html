@@ -289,6 +289,13 @@
   }
   .top-montant { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
 
+  .tresorerie-tableau-ligne {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13.5px; text-align: left;
+  }
+  .tresorerie-tableau-ligne:last-child { border-bottom: none; }
+  .tresorerie-tableau-montant { font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
+
   /* Conteneur à hauteur FIXE pour les graphiques : Chart.js est "responsive"
      par défaut et grandit en hauteur en même temps qu'en largeur (ratio
      conservé), ce qui donne des graphiques énormes sur grand écran. En
@@ -529,7 +536,7 @@
       <div class="chip-row" id="annee-chips"></div>
 
       <div class="card balance-card">
-        <div class="balance-label">Résultat</div>
+        <div class="balance-label" id="balance-label">Résultat</div>
         <div class="balance-amount" id="balance-total">0,00 €</div>
         <div class="balance-sub">
           <span class="in" id="balance-in">+ 0,00 €</span>
@@ -539,8 +546,8 @@
         <div style="border-top:1px solid var(--rule); margin:16px 0;"></div>
 
         <div class="balance-label">Argent disponible aujourd'hui</div>
-        <div class="balance-amount" id="dashboard-tresorerie-total" style="font-size:26px;">0,00 €</div>
-        <div class="tx-meta" id="dashboard-tresorerie-detail" style="margin-top:4px;"></div>
+        <div class="balance-amount" id="dashboard-tresorerie-total" style="font-size:26px; margin-bottom:12px;">0,00 €</div>
+        <div id="dashboard-tresorerie-tableau"></div>
       </div>
 
       <div class="chip-row" id="filter-chips">
@@ -1487,6 +1494,7 @@ function renderDashboard() {
   balEl.classList.toggle('negative', solde < 0);
   $('balance-in').textContent = '+ ' + formatMoney(totalIn);
   $('balance-out').textContent = '− ' + formatMoney(totalOut);
+  $('balance-label').textContent = state.anneeFiltre === 'toutes' ? 'Résultat — Toutes années' : 'Résultat ' + state.anneeFiltre;
 
   // Argent réellement disponible aujourd'hui, tous comptes confondus —
   // toujours calculé sur l'année civile en cours, indépendamment du filtre
@@ -1497,9 +1505,15 @@ function renderDashboard() {
   const tresoEl = $('dashboard-tresorerie-total');
   tresoEl.textContent = formatMoney(totalTresorerie);
   tresoEl.classList.toggle('negative', totalTresorerie < 0);
-  $('dashboard-tresorerie-detail').textContent =
-    'Compte courant ' + formatMoney(soldeCompteCourant) + ' · Livret A ' + formatMoney(state.comptesBancaires.livretA) +
-    ' · Sociétaire ' + formatMoney(state.comptesBancaires.livretSocietaire) + ' · Titre ' + formatMoney(state.comptesBancaires.compteTitre);
+  const lignesTresorerie = [
+    ['Compte courant', soldeCompteCourant],
+    ['Livret A', state.comptesBancaires.livretA],
+    ['Livret engagé sociétaire', state.comptesBancaires.livretSocietaire],
+    ['Compte titre', state.comptesBancaires.compteTitre]
+  ];
+  $('dashboard-tresorerie-tableau').innerHTML = lignesTresorerie.map(function(l){
+    return '<div class="tresorerie-tableau-ligne"><span>' + escHtml(l[0]) + '</span><span class="tresorerie-tableau-montant">' + formatMoney(l[1]) + '</span></div>';
+  }).join('');
 
   const liste = state.filtre === 'tout' ? transactionsAnnee : transactionsAnnee.filter(function(t){ return t.type === state.filtre; });
   const listEl = $('tx-list');

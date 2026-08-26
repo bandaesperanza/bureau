@@ -1476,11 +1476,6 @@ function renderAnneeChips() {
 
   const el = $('annee-chips');
   el.innerHTML = '';
-  const chipToutes = document.createElement('div');
-  chipToutes.className = 'chip' + (state.anneeFiltre === 'toutes' ? ' active' : '');
-  chipToutes.textContent = 'Toutes';
-  chipToutes.addEventListener('click', function(){ state.anneeFiltre = 'toutes'; renderAnneeChips(); renderDashboard(); });
-  el.appendChild(chipToutes);
 
   anneesTriees.forEach(function(annee){
     const chip = document.createElement('div');
@@ -1494,9 +1489,7 @@ function renderAnneeChips() {
 function renderDashboard() {
   renderAnneeChips();
 
-  const transactionsAnnee = state.anneeFiltre === 'toutes'
-    ? state.transactions
-    : state.transactions.filter(function(t){ return (t.date || '').slice(0, 4) === state.anneeFiltre; });
+  const transactionsAnnee = state.transactions.filter(function(t){ return (t.date || '').slice(0, 4) === state.anneeFiltre; });
 
   let totalIn = 0, totalOut = 0;
   transactionsAnnee.forEach(function(tx){
@@ -1509,7 +1502,7 @@ function renderDashboard() {
   balEl.classList.toggle('negative', solde < 0);
   $('balance-in').textContent = '+ ' + formatMoney(totalIn);
   $('balance-out').textContent = '− ' + formatMoney(totalOut);
-  $('balance-label').textContent = state.anneeFiltre === 'toutes' ? 'Résultat — Toutes années' : 'Résultat ' + state.anneeFiltre;
+  $('balance-label').textContent = 'Résultat ' + state.anneeFiltre;
 
   // Argent réellement disponible aujourd'hui, tous comptes confondus —
   // toujours calculé sur l'année civile en cours, indépendamment du filtre

@@ -1150,7 +1150,7 @@ $('btn-logout').addEventListener('click', function(){
   if (confirm('Se déconnecter ?')) fbAuth.signOut();
 });
 
-$('btn-refresh').addEventListener('click', function(){
+function effectuerActualisationComplete() {
   const btn = $('btn-refresh');
   btn.textContent = '…';
   const nettoyer = [];
@@ -1167,7 +1167,20 @@ $('btn-refresh').addEventListener('click', function(){
   Promise.all(nettoyer).finally(function(){
     location.reload();
   });
-});
+}
+$('btn-refresh').addEventListener('click', effectuerActualisationComplete);
+
+// Actualisation automatique une fois par connexion (pas à chaque re-rendu) :
+// verrou posé dans sessionStorage, qui s'efface tout seul à la vraie fermeture
+// de l'app — donc ça se redéclenche bien à la prochaine connexion, sans jamais
+// tourner en boucle avec le rechargement de page qui suit.
+function actualiserAutomatiquementSiNecessaire() {
+  try {
+    if (sessionStorage.getItem('tresorerie_auto_refresh_fait')) return;
+    sessionStorage.setItem('tresorerie_auto_refresh_fait', '1');
+  } catch (e) { return; }
+  effectuerActualisationComplete();
+}
 
 /* ============================================================
    AUTHENTIFICATION
@@ -1282,6 +1295,7 @@ fbAuth.onAuthStateChanged(function(user){
   if (!user) {
     state.user = null; state.role = null;
     arreterMinuteurInactivite();
+    try { sessionStorage.removeItem('tresorerie_auto_refresh_fait'); } catch (e) {}
     $('view-login').classList.remove('hidden');
     $('view-pending').classList.add('hidden');
     $('app-shell').classList.add('hidden');
@@ -1289,6 +1303,7 @@ fbAuth.onAuthStateChanged(function(user){
   }
 
   demarrerMinuteurInactivite();
+  actualiserAutomatiquementSiNecessaire();
   state.user = { uid: user.uid, email: user.email };
 
   fbDb.collection('utilisateurs').doc(user.uid).onSnapshot(function(doc){

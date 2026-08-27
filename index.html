@@ -400,15 +400,10 @@
   .type-switch button.active:not(.depense):not(.recette) { background: var(--focus); border-color: var(--focus); color: #fff; }
   .type-switch button.active.recette { background: var(--green-soft); border-color: var(--green); color: var(--green); }
 
-  /* Variante défilante : pour les rangées de 3 boutons et plus, ou avec des
-     libellés longs — largeur au contenu (pas d'étirement forcé égal) et
-     jamais de retour à la ligne dans le texte, on fait défiler à la place. */
-  .type-switch.scroll {
-    overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap;
-    scrollbar-width: none; -ms-overflow-style: none;
-  }
-  .type-switch.scroll::-webkit-scrollbar { display: none; }
-  .type-switch.scroll button { flex: 0 0 auto; white-space: nowrap; padding: 10px 16px; }
+  /* Variante grille 2 colonnes : pour les rangées de 4 boutons (ou plus),
+     mieux qu'un défilement caché — tout reste visible, sur deux lignes. */
+  .type-switch.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .type-switch.grid2 button { white-space: normal; line-height: 1.25; }
 
   .photo-zone {
     border: 1.5px dashed var(--rule); border-radius: 12px; padding: 16px;
@@ -642,7 +637,7 @@
 
     <!-- ---------- Admin : Administration (comptes, activités, grand livre) ---------- -->
     <section id="view-users" class="view">
-      <div class="type-switch scroll" style="margin-bottom:14px;">
+      <div class="type-switch grid2" style="margin-bottom:14px;">
         <button type="button" class="active" id="admin-toggle-utilisateurs">👥 Utilisateurs</button>
         <button type="button" id="admin-toggle-activites">🏷️ Activités</button>
         <button type="button" id="admin-toggle-grandlivre">📒 Livre de compte</button>
@@ -744,7 +739,7 @@
 
     <!-- ---------- Bilan / Livre de compte ---------- -->
     <section id="view-bilan" class="view">
-      <div class="type-switch scroll" style="margin-bottom:14px;">
+      <div class="type-switch" style="margin-bottom:14px;">
         <button type="button" class="active" id="bilan-toggle-livre">📒 Livre de compte</button>
         <button type="button" id="bilan-toggle-annuel">📊 Bilan année</button>
         <button type="button" id="bilan-toggle-analyse">📈 Analyse</button>

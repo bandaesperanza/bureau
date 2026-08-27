@@ -2294,17 +2294,21 @@ function renderRecurrentesListe() {
   const el = $('recurrentes-liste');
   el.innerHTML = '';
   $('recurrentes-empty').classList.toggle('hidden', state.recurrentes.length > 0);
+  const moisCourant = todayIso().slice(0, 7);
   state.recurrentes.slice().sort(function(a, b){ return (a.jourDuMois || 0) - (b.jourDuMois || 0); }).forEach(function(r){
     const actif = r.actif !== false;
+    const dejaValideeCeMois = r.derniereValidation === moisCourant;
+    const poussee = r.forcerAffichage === true && !dejaValideeCeMois;
     const carte = document.createElement('div');
     carte.className = 'recurrente-carte';
     carte.innerHTML =
       '<div style="min-width:0; opacity:' + (actif ? '1' : '0.5') + ';">' +
-        '<div style="font-weight:600;">' + escHtml(r.libelle) + '</div>' +
+        '<div style="font-weight:600;">' + escHtml(r.libelle) + (poussee ? ' <span class="tx-meta" style="color:var(--focus);">· poussée sur l\'Accueil</span>' : '') + '</div>' +
         '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + ' · Jour ' + r.jourDuMois + ' · ' + (r.type === 'recette' ? 'Recette' : 'Dépense') + '</div>' +
       '</div>' +
       '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">' +
         '<span class="tresorerie-tableau-montant" style="opacity:' + (actif ? '1' : '0.5') + ';">' + formatMoney(r.montant) + '</span>' +
+        (actif && !poussee ? '<button class="btn btn-drive" style="width:auto; padding:6px 10px;" data-action="pousser" data-id="' + r.id + '" title="Faire apparaître maintenant sur l\'Accueil, sans attendre le jour prévu">📌</button>' : '') +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="toggle" data-id="' + r.id + '">' + (actif ? '⏸' : '▶') + '</button>' +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-id="' + r.id + '">🗑</button>' +
       '</div>';
@@ -2322,6 +2326,10 @@ $('recurrentes-liste').addEventListener('click', function(e){
   } else if (btn.dataset.action === 'supprimer') {
     if (!confirm('Supprimer ce modèle récurrent ? (les transactions déjà créées restent inchangées)')) return;
     fbDb.collection('recurrentes').doc(id).delete().catch(function(err){ toast('Erreur : ' + err.message); });
+  } else if (btn.dataset.action === 'pousser') {
+    fbDb.collection('recurrentes').doc(id).update({ forcerAffichage: true })
+      .then(function(){ toast('"' + rec.libelle + '" ajoutée au rappel de l\'Accueil.'); })
+      .catch(function(err){ toast('Erreur : ' + err.message); });
   }
 });
 
@@ -2333,7 +2341,9 @@ function calculerRecurrentesDues() {
   return state.recurrentes.filter(function(r){
     if (r.actif === false) return false;
     if (r.derniereValidation === moisCourant) return false;
-    return jourCourant >= (r.jourDuMois || 1);
+    // Apparaît si le jour prévu est atteint (automatique) OU si l'admin
+    // l'a poussée manuellement depuis la page Récurrentes (forcerAffichage).
+    return jourCourant >= (r.jourDuMois || 1) || r.forcerAffichage === true;
   });
 }
 
@@ -2407,7 +2417,7 @@ function pousserRecurrenteDansSaisie(rec) {
 // liste (le compteur se met à jour tout seul via l'écoute Firestore).
 function ignorerRecurrente(rec) {
   const moisCourant = todayIso().slice(0, 7);
-  fbDb.collection('recurrentes').doc(rec.id).update({ derniereValidation: moisCourant })
+  fbDb.collection('recurrentes').doc(rec.id).update({ derniereValidation: moisCourant, forcerAffichage: false })
     .then(function(){ toast('"' + rec.libelle + '" ignoré pour ce mois-ci.'); })
     .catch(function(err){ toast('Erreur : ' + err.message); });
 }
@@ -3278,7 +3288,7 @@ function enregistrerTransaction() {
     if (state.formOrigineRecurrente) {
       const idRecurrente = state.formOrigineRecurrente;
       state.formOrigineRecurrente = null;
-      fbDb.collection('recurrentes').doc(idRecurrente).update({ derniereValidation: todayIso().slice(0, 7) })
+      fbDb.collection('recurrentes').doc(idRecurrente).update({ derniereValidation: todayIso().slice(0, 7), forcerAffichage: false })
         .catch(function(err){ console.warn('Marquage récurrente échoué :', err); });
     }
     showView('dashboard');

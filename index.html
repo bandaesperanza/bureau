@@ -296,6 +296,19 @@
   .tresorerie-tableau-ligne:last-child { border-bottom: none; }
   .tresorerie-tableau-montant { font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
 
+  .rappel-recurrente-ligne {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--rule);
+  }
+  .rappel-recurrente-ligne:last-child { border-bottom: none; }
+  .rappel-recurrente-info { min-width: 0; }
+  .rappel-recurrente-montant { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; margin-right: 10px; }
+  .recurrente-carte {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--rule);
+  }
+  .recurrente-carte:last-child { border-bottom: none; }
+
   /* Conteneur à hauteur FIXE pour les graphiques : Chart.js est "responsive"
      par défaut et grandit en hauteur en même temps qu'en largeur (ratio
      conservé), ce qui donne des graphiques énormes sur grand écran. En
@@ -533,6 +546,11 @@
   <main>
     <!-- ---------- Accueil / Tableau de bord ---------- -->
     <section id="view-dashboard" class="view active">
+      <div id="rappel-recurrentes-carte" class="card hidden" style="border:1px solid var(--focus);">
+        <div class="bilan-bloc-header"><span>🔁 Récurrentes à valider ce mois-ci</span></div>
+        <div id="rappel-recurrentes-liste" style="margin-top:8px;"></div>
+      </div>
+
       <div class="chip-row" id="annee-chips"></div>
 
       <div class="card balance-card">
@@ -618,6 +636,7 @@
         <button type="button" class="active" id="admin-toggle-utilisateurs">👥 Utilisateurs</button>
         <button type="button" id="admin-toggle-activites">🏷️ Activités</button>
         <button type="button" id="admin-toggle-grandlivre">📒 Livre de compte</button>
+        <button type="button" id="admin-toggle-recurrentes">🔁 Récurrentes</button>
       </div>
 
       <div id="admin-page-utilisateurs">
@@ -674,6 +693,41 @@
           <input type="file" id="import-grandlivre-file" accept=".xlsx" class="hidden">
           <button class="btn btn-secondary" id="btn-import-grandlivre">📁 Choisir un fichier Excel</button>
           <div id="import-grandlivre-status" class="tx-meta" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div id="admin-page-recurrentes" class="hidden">
+        <div class="section-title">Modèles existants</div>
+        <div class="card">
+          <div id="recurrentes-liste"></div>
+          <div class="empty-state hidden" id="recurrentes-empty">Aucun modèle pour l'instant.</div>
+        </div>
+
+        <div class="section-title">Nouveau modèle</div>
+        <div class="card">
+          <div class="tx-meta" style="margin-bottom:10px;">
+            Même montant, même activité/sous-activité, même moyen de paiement,
+            même libellé chaque mois — seule la date change. Une fois créé, le
+            modèle propose un rappel à valider sur l'écran d'Accueil dès que
+            le jour choisi est atteint.
+          </div>
+          <div class="type-switch">
+            <button type="button" class="active depense" data-rtype="depense" id="recswitch-depense">Dépense</button>
+            <button type="button" class="recette" data-rtype="recette" id="recswitch-recette">Recette</button>
+          </div>
+          <label class="field-label">Montant (€)</label>
+          <input type="number" id="rec-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+          <label class="field-label">Activité</label>
+          <select id="rec-activite"></select>
+          <label class="field-label">Sous-activité</label>
+          <select id="rec-sousactivite"></select>
+          <label class="field-label">Moyen de paiement</label>
+          <select id="rec-moyen"><option value="">— Choisir —</option></select>
+          <label class="field-label">Libellé</label>
+          <input type="text" id="rec-libelle" placeholder="Ex. Loyer local">
+          <label class="field-label">Jour du mois (1 à 28)</label>
+          <input type="number" id="rec-jour" inputmode="numeric" min="1" max="28" placeholder="5">
+          <button class="btn btn-primary" id="btn-recurrente-creer" style="margin-top:12px;">🔁 Créer le modèle</button>
         </div>
       </div>
     </section>
@@ -1014,6 +1068,7 @@ const state = {
   comptesAnnee: String(new Date().getFullYear()),
   comptesBancaires: { livretA: 0, livretSocietaire: 0, compteTitre: 0, soldeInitialCompteCourant: {} },
   transferts: [],
+  recurrentes: [],
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -1027,7 +1082,7 @@ const state = {
 };
 state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
-let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null;
+let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null;
 
 /* ============================================================
    UTILITAIRES
@@ -1291,6 +1346,7 @@ fbAuth.onAuthStateChanged(function(user){
   if (unsubUsers) { unsubUsers(); unsubUsers = null; }
   if (unsubComptes) { unsubComptes(); unsubComptes = null; }
   if (unsubTransferts) { unsubTransferts(); unsubTransferts = null; }
+  if (unsubRecurrentes) { unsubRecurrentes(); unsubRecurrentes = null; }
 
   if (!user) {
     state.user = null; state.role = null;
@@ -1332,7 +1388,9 @@ fbAuth.onAuthStateChanged(function(user){
       demarrerEcouteTransactions();
       demarrerEcouteComptesBancaires();
       demarrerEcouteTransferts();
+      demarrerEcouteRecurrentes();
       remplirSelectsActivite();
+      remplirSelectsRecurrente();
       if (isAdmin) {
         demarrerEcouteUtilisateurs();
         renderAdminActivites();
@@ -1488,6 +1546,7 @@ function renderAnneeChips() {
 
 function renderDashboard() {
   renderAnneeChips();
+  renderRappelRecurrentes();
 
   const transactionsAnnee = state.transactions.filter(function(t){ return (t.date || '').slice(0, 4) === state.anneeFiltre; });
 
@@ -2077,6 +2136,202 @@ function renderAnalyse() {
     toast('Erreur graphiques : ' + err.message);
   });
 }
+
+
+/* ============================================================
+   RÉCURRENTES — modèles de dépenses/recettes mensuelles fixes, avec
+   rappel à valider sur l'Accueil (jamais de création automatique silencieuse)
+   ============================================================ */
+let recurrenteTypeCourant = 'depense';
+
+function demarrerEcouteRecurrentes() {
+  if (unsubRecurrentes) unsubRecurrentes();
+  unsubRecurrentes = fbDb.collection('recurrentes').onSnapshot(function(snap){
+    state.recurrentes = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    if (document.getElementById('view-dashboard').classList.contains('active')) renderRappelRecurrentes();
+    if (state.adminPage === 'recurrentes' && document.getElementById('view-users').classList.contains('active')) renderRecurrentesListe();
+  }, function(err){ console.error('Ecoute récurrentes :', err); });
+}
+
+// Cascade Activité -> Sous-activité -> Moyens de paiement, pour le formulaire
+// de création de modèle (même logique que le formulaire de saisie normal,
+// mais sans l'option "+ Nouvelle sous-activité" pour rester simple ici).
+function remplirSelectsRecurrente() {
+  const liste = recurrenteTypeCourant === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const sel = $('rec-activite');
+  const valeurActuelle = sel.value;
+  sel.innerHTML = '<option value="">— Choisir —</option>';
+  (liste || []).forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a.nom; opt.textContent = a.nom;
+    sel.appendChild(opt);
+  });
+  if (liste && liste.some(function(a){ return a.nom === valeurActuelle; })) sel.value = valeurActuelle;
+  remplirSousActivitesRecurrente();
+
+  const moyens = recurrenteTypeCourant === 'depense' ? MOYENS_PAIEMENT_DEPENSE : MOYENS_PAIEMENT_RECETTE;
+  const selM = $('rec-moyen');
+  const valeurMoyenActuelle = selM.value;
+  selM.innerHTML = '<option value="">— Choisir —</option>';
+  moyens.forEach(function(m){
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    selM.appendChild(opt);
+  });
+  if (moyens.indexOf(valeurMoyenActuelle) !== -1) selM.value = valeurMoyenActuelle;
+}
+function remplirSousActivitesRecurrente() {
+  const liste = recurrenteTypeCourant === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const act = (liste || []).find(function(a){ return a.nom === $('rec-activite').value; });
+  const sel = $('rec-sousactivite');
+  sel.innerHTML = '<option value="">— Choisir —</option>';
+  (act ? act.sousActivites : []).forEach(function(s){
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  });
+}
+$('rec-activite').addEventListener('change', remplirSousActivitesRecurrente);
+$('recswitch-depense').addEventListener('click', function(){
+  recurrenteTypeCourant = 'depense';
+  $('recswitch-depense').classList.add('active'); $('recswitch-recette').classList.remove('active');
+  remplirSelectsRecurrente();
+});
+$('recswitch-recette').addEventListener('click', function(){
+  recurrenteTypeCourant = 'recette';
+  $('recswitch-recette').classList.add('active'); $('recswitch-depense').classList.remove('active');
+  remplirSelectsRecurrente();
+});
+
+$('btn-recurrente-creer').addEventListener('click', function(){
+  const montant = parseFloat($('rec-montant').value);
+  const activite = $('rec-activite').value;
+  const sousActivite = $('rec-sousactivite').value;
+  const moyenPaiement = $('rec-moyen').value;
+  const libelle = $('rec-libelle').value.trim();
+  const jour = parseInt($('rec-jour').value, 10);
+
+  if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
+  if (!activite) { toast('Choisis une activité.'); return; }
+  if (!sousActivite) { toast('Choisis une sous-activité.'); return; }
+  if (!moyenPaiement) { toast('Choisis un moyen de paiement.'); return; }
+  if (!libelle) { toast('Libellé obligatoire.'); return; }
+  if (!jour || jour < 1 || jour > 28) { toast('Jour du mois entre 1 et 28.'); return; }
+
+  const btn = $('btn-recurrente-creer');
+  btn.disabled = true;
+  fbDb.collection('recurrentes').add({
+    type: recurrenteTypeCourant, montant: montant, activite: activite, sousActivite: sousActivite,
+    moyenPaiement: moyenPaiement, libelle: libelle, jourDuMois: jour, actif: true,
+    derniereValidation: null, creeParUid: state.user.uid, creeParEmail: state.user.email,
+    creeLe: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    toast('Modèle créé.');
+    $('rec-montant').value = ''; $('rec-libelle').value = ''; $('rec-jour').value = '';
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  }).then(function(){ btn.disabled = false; });
+});
+
+function renderRecurrentesListe() {
+  const el = $('recurrentes-liste');
+  el.innerHTML = '';
+  $('recurrentes-empty').classList.toggle('hidden', state.recurrentes.length > 0);
+  state.recurrentes.slice().sort(function(a, b){ return (a.jourDuMois || 0) - (b.jourDuMois || 0); }).forEach(function(r){
+    const actif = r.actif !== false;
+    const carte = document.createElement('div');
+    carte.className = 'recurrente-carte';
+    carte.innerHTML =
+      '<div style="min-width:0; opacity:' + (actif ? '1' : '0.5') + ';">' +
+        '<div style="font-weight:600;">' + escHtml(r.libelle) + '</div>' +
+        '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + ' · Jour ' + r.jourDuMois + ' · ' + (r.type === 'recette' ? 'Recette' : 'Dépense') + '</div>' +
+      '</div>' +
+      '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">' +
+        '<span class="tresorerie-tableau-montant" style="opacity:' + (actif ? '1' : '0.5') + ';">' + formatMoney(r.montant) + '</span>' +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="toggle" data-id="' + r.id + '">' + (actif ? '⏸' : '▶') + '</button>' +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-id="' + r.id + '">🗑</button>' +
+      '</div>';
+    el.appendChild(carte);
+  });
+}
+$('recurrentes-liste').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const rec = state.recurrentes.find(function(r){ return r.id === id; });
+  if (!rec) return;
+  if (btn.dataset.action === 'toggle') {
+    fbDb.collection('recurrentes').doc(id).update({ actif: !(rec.actif !== false) }).catch(function(err){ toast('Erreur : ' + err.message); });
+  } else if (btn.dataset.action === 'supprimer') {
+    if (!confirm('Supprimer ce modèle récurrent ? (les transactions déjà créées restent inchangées)')) return;
+    fbDb.collection('recurrentes').doc(id).delete().catch(function(err){ toast('Erreur : ' + err.message); });
+  }
+});
+
+// --- Rappel sur l'écran d'Accueil : jamais de création automatique, juste
+// une proposition à valider en un tap dès que le jour choisi est atteint. ---
+function calculerRecurrentesDues() {
+  const moisCourant = todayIso().slice(0, 7);
+  const jourCourant = new Date().getDate();
+  return state.recurrentes.filter(function(r){
+    if (r.actif === false) return false;
+    if (r.derniereValidation === moisCourant) return false;
+    return jourCourant >= (r.jourDuMois || 1);
+  });
+}
+
+function renderRappelRecurrentes() {
+  const dues = calculerRecurrentesDues();
+  $('rappel-recurrentes-carte').classList.toggle('hidden', dues.length === 0);
+  const el = $('rappel-recurrentes-liste');
+  el.innerHTML = '';
+  dues.forEach(function(r){
+    const ligne = document.createElement('div');
+    ligne.className = 'rappel-recurrente-ligne';
+    ligne.innerHTML =
+      '<div class="rappel-recurrente-info">' +
+        '<div style="font-weight:600;">' + escHtml(r.libelle) + '</div>' +
+        '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + '</div>' +
+      '</div>' +
+      '<span class="rappel-recurrente-montant">' + formatMoney(r.montant) + '</span>' +
+      '<button class="btn btn-primary" style="width:auto; padding:8px 14px; flex-shrink:0;" data-id="' + r.id + '">✓ Valider</button>';
+    el.appendChild(ligne);
+  });
+}
+
+$('rappel-recurrentes-liste').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-id]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const rec = state.recurrentes.find(function(r){ return r.id === id; });
+  if (!rec) return;
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  const moisCourant = todayIso().slice(0, 7);
+  const anneeCourante = moisCourant.slice(0, 4);
+  const moisNumero = parseInt(moisCourant.slice(5, 7), 10);
+  const dernierJourMois = new Date(parseInt(anneeCourante, 10), moisNumero, 0).getDate();
+  const jour = Math.min(rec.jourDuMois || 1, dernierJourMois);
+  const dateGeneree = moisCourant + '-' + String(jour).padStart(2, '0');
+
+  genererNumeroTransaction(anneeCourante).then(function(numero){
+    return fbDb.collection('transactions').add({
+      numero: numero, type: rec.type, date: dateGeneree, montant: rec.montant,
+      activite: rec.activite, sousActivite: rec.sousActivite, moyenPaiement: rec.moyenPaiement,
+      libelle: rec.libelle, creeParUid: state.user.uid, creeParEmail: state.user.email,
+      creeLe: firebase.firestore.FieldValue.serverTimestamp(), genereeDepuisRecurrente: rec.id
+    });
+  }).then(function(){
+    return fbDb.collection('recurrentes').doc(id).update({ derniereValidation: moisCourant });
+  }).then(function(){
+    toast('Transaction créée : ' + rec.libelle);
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+    btn.disabled = false;
+    btn.textContent = '✓ Valider';
+  });
+});
 
 
 /* ============================================================
@@ -3686,21 +3941,25 @@ function importerGrandLivre(file) {
 }
 
 /* ============================================================
-   ADMIN — BASCULE ENTRE SOUS-PAGES (Utilisateurs / Activités / Livre de compte)
+   ADMIN — BASCULE ENTRE SOUS-PAGES (Utilisateurs / Activités / Livre de compte / Récurrentes)
    ============================================================ */
 function afficherPageAdmin(page) {
   state.adminPage = page;
   $('admin-toggle-utilisateurs').classList.toggle('active', page === 'utilisateurs');
   $('admin-toggle-activites').classList.toggle('active', page === 'activites');
   $('admin-toggle-grandlivre').classList.toggle('active', page === 'grandlivre');
+  $('admin-toggle-recurrentes').classList.toggle('active', page === 'recurrentes');
   $('admin-page-utilisateurs').classList.toggle('hidden', page !== 'utilisateurs');
   $('admin-page-activites').classList.toggle('hidden', page !== 'activites');
   $('admin-page-grandlivre').classList.toggle('hidden', page !== 'grandlivre');
+  $('admin-page-recurrentes').classList.toggle('hidden', page !== 'recurrentes');
+  if (page === 'recurrentes') { remplirSelectsRecurrente(); renderRecurrentesListe(); }
   remonterEnHaut();
 }
 $('admin-toggle-utilisateurs').addEventListener('click', function(){ afficherPageAdmin('utilisateurs'); });
 $('admin-toggle-activites').addEventListener('click', function(){ afficherPageAdmin('activites'); });
 $('admin-toggle-grandlivre').addEventListener('click', function(){ afficherPageAdmin('grandlivre'); });
+$('admin-toggle-recurrentes').addEventListener('click', function(){ afficherPageAdmin('recurrentes'); });
 
 /* ============================================================
    ADMIN — LANCER L'ANNEE COMPTABLE (structure Drive complète)

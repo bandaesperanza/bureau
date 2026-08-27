@@ -551,10 +551,11 @@
   <main>
     <!-- ---------- Accueil / Tableau de bord ---------- -->
     <section id="view-dashboard" class="view active">
-      <div id="rappel-recurrentes-carte" class="card hidden" style="border:1px solid var(--focus);">
-        <div class="bilan-bloc-header"><span>🔁 Récurrentes à valider ce mois-ci</span></div>
-        <div id="rappel-recurrentes-liste" style="margin-top:8px;"></div>
-      </div>
+      <button class="card hidden" id="btn-toggle-recurrentes" style="border:1px solid var(--focus); width:100%; text-align:left; cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+        <span>🔁 Récurrentes à valider <span id="recurrentes-compteur"></span></span>
+        <span id="recurrentes-chevron">▾</span>
+      </button>
+      <div id="rappel-recurrentes-liste" class="card hidden" style="margin-top:-6px; padding-top:16px;"></div>
 
       <div class="chip-row" id="annee-chips"></div>
 
@@ -768,9 +769,9 @@
 
           <label class="field-label">Montant</label>
           <div style="display:flex; gap:8px; align-items:center;">
-            <input type="number" id="livre-montant-min" inputmode="decimal" step="0.01" min="0" placeholder="Min">
+            <input type="text" inputmode="decimal" id="livre-montant-min" placeholder="Min">
             <span class="tx-meta">à</span>
-            <input type="number" id="livre-montant-max" inputmode="decimal" step="0.01" min="0" placeholder="Max">
+            <input type="text" inputmode="decimal" id="livre-montant-max" placeholder="Max">
           </div>
 
           <label class="field-label">Recherche (libellé)</label>
@@ -1741,8 +1742,8 @@ function renderLivre() {
   $('livre-montant-min').value = state.livre.montantMin;
   $('livre-montant-max').value = state.livre.montantMax;
 
-  const montantMin = parseFloat(state.livre.montantMin);
-  const montantMax = parseFloat(state.livre.montantMax);
+  const montantMin = parseFloat(String(state.livre.montantMin).replace(',', '.'));
+  const montantMax = parseFloat(String(state.livre.montantMax).replace(',', '.'));
 
   let lignes = state.transactions.filter(function(t){
     if (state.livre.annee !== 'toutes' && (t.date || '').slice(0, 4) !== state.livre.annee) return false;
@@ -2336,10 +2337,19 @@ function calculerRecurrentesDues() {
   });
 }
 
+let recurrentesDeplie = false;
+
 function renderRappelRecurrentes() {
   const dues = calculerRecurrentesDues();
-  $('rappel-recurrentes-carte').classList.toggle('hidden', dues.length === 0);
+  const boutonToggle = $('btn-toggle-recurrentes');
+  boutonToggle.classList.toggle('hidden', dues.length === 0);
+  $('recurrentes-compteur').textContent = dues.length > 0 ? '(' + dues.length + ')' : '';
+  if (dues.length === 0) recurrentesDeplie = false;
+
   const el = $('rappel-recurrentes-liste');
+  el.classList.toggle('hidden', !recurrentesDeplie || dues.length === 0);
+  $('recurrentes-chevron').textContent = recurrentesDeplie ? '▴' : '▾';
+
   el.innerHTML = '';
   dues.forEach(function(r){
     const ligne = document.createElement('div');
@@ -2347,18 +2357,25 @@ function renderRappelRecurrentes() {
     ligne.innerHTML =
       '<div class="rappel-recurrente-info">' +
         '<div style="font-weight:600;">' + escHtml(r.libelle) + '</div>' +
-        '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + '</div>' +
+        '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + ' · ' + formatMoney(r.montant) + '</div>' +
       '</div>' +
-      '<span class="rappel-recurrente-montant">' + formatMoney(r.montant) + '</span>' +
-      '<button class="btn btn-primary" style="width:auto; padding:8px 14px; flex-shrink:0;" data-id="' + r.id + '">→ Ajouter</button>';
+      '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+        '<button class="btn btn-primary" style="width:auto; padding:8px 12px;" data-action="ajouter" data-id="' + r.id + '">→ Ajouter</button>' +
+        '<button class="btn btn-ghost" style="width:auto; padding:8px 12px;" data-action="ignorer" data-id="' + r.id + '">✕ Ignorer</button>' +
+      '</div>';
     el.appendChild(ligne);
   });
 }
 
-// Pousse UNE récurrente à la fois dans l'onglet Saisie, pré-remplie — on
-// regarde/ajuste puis on enregistre normalement, plutôt qu'une création
-// instantanée en un tap. La récurrente n'est marquée "faite ce mois-ci" que
-// lorsque la transaction est réellement enregistrée (voir enregistrerTransaction).
+$('btn-toggle-recurrentes').addEventListener('click', function(){
+  recurrentesDeplie = !recurrentesDeplie;
+  renderRappelRecurrentes();
+});
+
+// Pousse UNE récurrente à la fois dans l'onglet Saisie, pré-remplie — date
+// comprise, tout reste modifiable avant d'enregistrer normalement. La
+// récurrente n'est marquée "faite ce mois-ci" que lorsque la transaction est
+// réellement enregistrée (voir enregistrerTransaction).
 function pousserRecurrenteDansSaisie(rec) {
   showView('form'); // remet le formulaire à zéro avant de le pré-remplir
 
@@ -2377,20 +2394,31 @@ function pousserRecurrenteDansSaisie(rec) {
   const dernierJourMois = new Date(parseInt(anneeCourante, 10), moisNumero, 0).getDate();
   const jour = Math.min(rec.jourDuMois || 1, dernierJourMois);
   const dateVoulue = moisCourant + '-' + String(jour).padStart(2, '0');
+  // Champ de date natif, entièrement modifiable ensuite (pas de verrouillage).
   $('form-date').value = dateVoulue;
   $('form-date-display').textContent = formatDateLongue(dateVoulue);
   rafraichirNumeroFormulaire();
 
   state.formOrigineRecurrente = rec.id;
-  toast('Modèle "' + rec.libelle + '" chargé — vérifie puis enregistre.');
+  toast('Modèle "' + rec.libelle + '" chargé — vérifie (dont la date) puis enregistre.');
+}
+
+// Ignorer : passe le mois sans créer de transaction, retire l'entrée de la
+// liste (le compteur se met à jour tout seul via l'écoute Firestore).
+function ignorerRecurrente(rec) {
+  const moisCourant = todayIso().slice(0, 7);
+  fbDb.collection('recurrentes').doc(rec.id).update({ derniereValidation: moisCourant })
+    .then(function(){ toast('"' + rec.libelle + '" ignoré pour ce mois-ci.'); })
+    .catch(function(err){ toast('Erreur : ' + err.message); });
 }
 
 $('rappel-recurrentes-liste').addEventListener('click', function(e){
-  const btn = e.target.closest('button[data-id]');
+  const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const rec = state.recurrentes.find(function(r){ return r.id === btn.dataset.id; });
   if (!rec) return;
-  pousserRecurrenteDansSaisie(rec);
+  if (btn.dataset.action === 'ajouter') pousserRecurrenteDansSaisie(rec);
+  else if (btn.dataset.action === 'ignorer') ignorerRecurrente(rec);
 });
 
 

@@ -1168,6 +1168,7 @@ function showView(name) {
     b.classList.toggle('active', b.dataset.view === name);
   });
   remonterEnHaut();
+  if (name === 'dashboard') renderDashboard();
   if (name === 'form') resetForm();
   if (name === 'bilan') afficherSousVueBilan(state.bilanSousVue);
   if (name === 'comptes') renderComptes();

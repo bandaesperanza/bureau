@@ -368,6 +368,20 @@
     opacity: 0; margin: 0; padding: 0; border: none; min-height: 0;
   }
 
+  /* Sur PC/grand écran, le clic souris sur un input invisible est peu fiable
+     (pas de retour visuel, zone cliquable du picker parfois minuscule) —
+     contrairement au tap tactile sur iOS. On y montre donc le vrai champ
+     natif, qui gère lui-même son icône de calendrier et la saisie clavier. */
+  @media (min-width: 700px) {
+    .date-display { display: none; }
+    .date-field-wrap input[type="date"] {
+      position: static; opacity: 1; width: 100%; padding: 11px 12px;
+      border: 1px solid var(--rule); border-radius: 10px; background: var(--paper);
+      color: var(--ink); font-family: 'Inter', sans-serif; font-size: 15px;
+      min-height: 44px; box-sizing: border-box;
+    }
+  }
+
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     border: none; border-radius: 11px; padding: 13px 18px; font-size: 14px; font-weight: 600;

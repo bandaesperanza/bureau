@@ -760,8 +760,18 @@
           <label class="field-label">Catégorie</label>
           <select id="livre-activite"><option value="toutes">Toutes</option></select>
 
+          <label class="field-label">Sous-catégorie</label>
+          <select id="livre-sousactivite"><option value="toutes">Toutes</option></select>
+
           <label class="field-label">Moyen de paiement</label>
           <select id="livre-moyen"><option value="tous">Tous</option></select>
+
+          <label class="field-label">Montant</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="number" id="livre-montant-min" inputmode="decimal" step="0.01" min="0" placeholder="Min">
+            <span class="tx-meta">à</span>
+            <input type="number" id="livre-montant-max" inputmode="decimal" step="0.01" min="0" placeholder="Max">
+          </div>
 
           <label class="field-label">Recherche (libellé)</label>
           <input type="text" id="livre-recherche" placeholder="Rechercher dans le libellé…">
@@ -1067,7 +1077,7 @@ const state = {
   transactions: [],
   filtre: 'tout',
   anneeFiltre: String(new Date().getFullYear()),
-  livre: { annee: String(new Date().getFullYear()), type: 'tout', activite: 'toutes', moyen: 'tous', recherche: '', triChamp: 'date', triSens: 'desc' },
+  livre: { annee: String(new Date().getFullYear()), type: 'tout', activite: 'toutes', sousActivite: 'toutes', moyen: 'tous', montantMin: '', montantMax: '', recherche: '', triChamp: 'date', triSens: 'desc' },
   bilanSousVue: 'livre',
   adminPage: 'utilisateurs',
   comptesAnnee: String(new Date().getFullYear()),
@@ -1077,6 +1087,7 @@ const state = {
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
+  formOrigineRecurrente: null,
   formPhotoBlob: null,
   formPhotoName: null,
   driveAccessToken: null,
@@ -1646,6 +1657,35 @@ function remplirLivreActivites() {
   });
   sel.value = noms.indexOf(valeurActuelle) !== -1 ? valeurActuelle : 'toutes';
   state.livre.activite = sel.value;
+  remplirLivreSousActivites();
+}
+
+// Sous-catégories disponibles : dépend de la catégorie choisie ci-dessus
+// (ou de toutes les catégories du type sélectionné si "Toutes").
+function remplirLivreSousActivites() {
+  const listesActivites = state.livre.type === 'depense' ? state.activitesDepenses
+    : state.livre.type === 'recette' ? state.activitesRecettes
+    : state.activitesDepenses.concat(state.activitesRecettes);
+
+  let sousActivites;
+  if (state.livre.activite !== 'toutes') {
+    const act = listesActivites.find(function(a){ return a.nom === state.livre.activite; });
+    sousActivites = act ? act.sousActivites.slice() : [];
+  } else {
+    sousActivites = Array.from(new Set(listesActivites.reduce(function(acc, a){ return acc.concat(a.sousActivites || []); }, [])));
+  }
+  sousActivites.sort();
+
+  const sel = $('livre-sousactivite');
+  const valeurActuelle = state.livre.sousActivite;
+  sel.innerHTML = '<option value="toutes">Toutes</option>';
+  sousActivites.forEach(function(s){
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  });
+  sel.value = sousActivites.indexOf(valeurActuelle) !== -1 ? valeurActuelle : 'toutes';
+  state.livre.sousActivite = sel.value;
 }
 
 function remplirLivreMoyens() {
@@ -1673,8 +1713,11 @@ $('livre-type').addEventListener('change', function(){
   remplirLivreMoyens();
   renderLivre();
 });
-$('livre-activite').addEventListener('change', function(){ state.livre.activite = this.value; renderLivre(); });
+$('livre-activite').addEventListener('change', function(){ state.livre.activite = this.value; remplirLivreSousActivites(); renderLivre(); });
+$('livre-sousactivite').addEventListener('change', function(){ state.livre.sousActivite = this.value; renderLivre(); });
 $('livre-moyen').addEventListener('change', function(){ state.livre.moyen = this.value; renderLivre(); });
+$('livre-montant-min').addEventListener('input', function(){ state.livre.montantMin = this.value; renderLivre(); });
+$('livre-montant-max').addEventListener('input', function(){ state.livre.montantMax = this.value; renderLivre(); });
 $('livre-recherche').addEventListener('input', function(){ state.livre.recherche = this.value.trim().toLowerCase(); renderLivre(); });
 
 document.querySelectorAll('table.livre th').forEach(function(th){
@@ -1695,12 +1738,20 @@ function renderLivre() {
   remplirLivreActivites();
   remplirLivreMoyens();
   $('livre-type').value = state.livre.type;
+  $('livre-montant-min').value = state.livre.montantMin;
+  $('livre-montant-max').value = state.livre.montantMax;
+
+  const montantMin = parseFloat(state.livre.montantMin);
+  const montantMax = parseFloat(state.livre.montantMax);
 
   let lignes = state.transactions.filter(function(t){
     if (state.livre.annee !== 'toutes' && (t.date || '').slice(0, 4) !== state.livre.annee) return false;
     if (state.livre.type !== 'tout' && t.type !== state.livre.type) return false;
     if (state.livre.activite !== 'toutes' && t.activite !== state.livre.activite) return false;
+    if (state.livre.sousActivite !== 'toutes' && t.sousActivite !== state.livre.sousActivite) return false;
     if (state.livre.moyen !== 'tous' && t.moyenPaiement !== state.livre.moyen) return false;
+    if (!isNaN(montantMin) && (Number(t.montant) || 0) < montantMin) return false;
+    if (!isNaN(montantMax) && (Number(t.montant) || 0) > montantMax) return false;
     if (state.livre.recherche && (t.libelle || '').toLowerCase().indexOf(state.livre.recherche) === -1) return false;
     return true;
   });
@@ -2299,43 +2350,47 @@ function renderRappelRecurrentes() {
         '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + '</div>' +
       '</div>' +
       '<span class="rappel-recurrente-montant">' + formatMoney(r.montant) + '</span>' +
-      '<button class="btn btn-primary" style="width:auto; padding:8px 14px; flex-shrink:0;" data-id="' + r.id + '">✓ Valider</button>';
+      '<button class="btn btn-primary" style="width:auto; padding:8px 14px; flex-shrink:0;" data-id="' + r.id + '">→ Ajouter</button>';
     el.appendChild(ligne);
   });
 }
 
-$('rappel-recurrentes-liste').addEventListener('click', function(e){
-  const btn = e.target.closest('button[data-id]');
-  if (!btn) return;
-  const id = btn.dataset.id;
-  const rec = state.recurrentes.find(function(r){ return r.id === id; });
-  if (!rec) return;
-  btn.disabled = true;
-  btn.textContent = '…';
+// Pousse UNE récurrente à la fois dans l'onglet Saisie, pré-remplie — on
+// regarde/ajuste puis on enregistre normalement, plutôt qu'une création
+// instantanée en un tap. La récurrente n'est marquée "faite ce mois-ci" que
+// lorsque la transaction est réellement enregistrée (voir enregistrerTransaction).
+function pousserRecurrenteDansSaisie(rec) {
+  showView('form'); // remet le formulaire à zéro avant de le pré-remplir
+
+  setFormType(rec.type);
+  $('form-activite').value = rec.activite;
+  remplirSousActivites();
+  $('form-sousactivite').value = rec.sousActivite;
+  remplirMoyensPaiement();
+  $('form-moyen').value = rec.moyenPaiement;
+  $('form-montant').value = rec.montant;
+  $('form-libelle').value = rec.libelle;
 
   const moisCourant = todayIso().slice(0, 7);
   const anneeCourante = moisCourant.slice(0, 4);
   const moisNumero = parseInt(moisCourant.slice(5, 7), 10);
   const dernierJourMois = new Date(parseInt(anneeCourante, 10), moisNumero, 0).getDate();
   const jour = Math.min(rec.jourDuMois || 1, dernierJourMois);
-  const dateGeneree = moisCourant + '-' + String(jour).padStart(2, '0');
+  const dateVoulue = moisCourant + '-' + String(jour).padStart(2, '0');
+  $('form-date').value = dateVoulue;
+  $('form-date-display').textContent = formatDateLongue(dateVoulue);
+  rafraichirNumeroFormulaire();
 
-  genererNumeroTransaction(anneeCourante).then(function(numero){
-    return fbDb.collection('transactions').add({
-      numero: numero, type: rec.type, date: dateGeneree, montant: rec.montant,
-      activite: rec.activite, sousActivite: rec.sousActivite, moyenPaiement: rec.moyenPaiement,
-      libelle: rec.libelle, creeParUid: state.user.uid, creeParEmail: state.user.email,
-      creeLe: firebase.firestore.FieldValue.serverTimestamp(), genereeDepuisRecurrente: rec.id
-    });
-  }).then(function(){
-    return fbDb.collection('recurrentes').doc(id).update({ derniereValidation: moisCourant });
-  }).then(function(){
-    toast('Transaction créée : ' + rec.libelle);
-  }).catch(function(err){
-    toast('Erreur : ' + err.message);
-    btn.disabled = false;
-    btn.textContent = '✓ Valider';
-  });
+  state.formOrigineRecurrente = rec.id;
+  toast('Modèle "' + rec.libelle + '" chargé — vérifie puis enregistre.');
+}
+
+$('rappel-recurrentes-liste').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-id]');
+  if (!btn) return;
+  const rec = state.recurrentes.find(function(r){ return r.id === btn.dataset.id; });
+  if (!rec) return;
+  pousserRecurrenteDansSaisie(rec);
 });
 
 
@@ -3075,6 +3130,7 @@ function resetForm() {
   $('form-photo-status').textContent = '';
   setFormType(state.formType);
   state.formNumeroModifie = false;
+  state.formOrigineRecurrente = null;
   rafraichirNumeroFormulaire();
 }
 
@@ -3189,6 +3245,14 @@ function enregistrerTransaction() {
     toast('Transaction enregistrée.');
     state.formNumero = null;
     state.formNumeroAnnee = null;
+    // Si ce formulaire a été pré-rempli depuis une récurrente, on la marque
+    // comme faite pour ce mois-ci — elle ne réapparaîtra pas dans le rappel.
+    if (state.formOrigineRecurrente) {
+      const idRecurrente = state.formOrigineRecurrente;
+      state.formOrigineRecurrente = null;
+      fbDb.collection('recurrentes').doc(idRecurrente).update({ derniereValidation: todayIso().slice(0, 7) })
+        .catch(function(err){ console.warn('Marquage récurrente échoué :', err); });
+    }
     showView('dashboard');
   }).catch(function(err){
     console.error(err);

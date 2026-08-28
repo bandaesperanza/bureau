@@ -953,6 +953,23 @@
       <div class="empty-state hidden" id="clients-empty">Aucun client pour l'instant.</div>
     </section>
 
+    <!-- ---------- Contrats (vue globale, par année, tous clients confondus) ---------- -->
+    <section id="view-contrats" class="view">
+      <div class="card">
+        <label class="field-label">Année</label>
+        <select id="contrats-liste-annee"></select>
+      </div>
+
+      <div class="card balance-card">
+        <div class="balance-label">Total facturé</div>
+        <div class="balance-amount" id="contrats-liste-total" style="font-size:26px;">0,00 €</div>
+        <div class="tx-meta" id="contrats-liste-compteur"></div>
+      </div>
+
+      <div id="contrats-liste-contenu"></div>
+      <div class="empty-state hidden" id="contrats-liste-empty">Aucun contrat pour cette année.</div>
+    </section>
+
     <!-- ---------- Banque (comptes bancaires + transferts) ---------- -->
     <section id="view-comptes" class="view">
       <div class="card balance-card">
@@ -1012,6 +1029,7 @@
     <button class="tab-btn" data-view="bilan"><span class="tab-icon">📊</span>Bilan</button>
     <button class="tab-btn" data-view="comptes"><span class="tab-icon">🏦</span>Banque</button>
     <button class="tab-btn" data-view="clients"><span class="tab-icon">👤</span>Clients</button>
+    <button class="tab-btn" data-view="contrats"><span class="tab-icon">📋</span>Contrats</button>
     <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">⚙️</span>Admin</button>
   </nav>
 </div>
@@ -1354,6 +1372,7 @@ function showView(name) {
   if (name === 'bilan') afficherSousVueBilan(state.bilanSousVue);
   if (name === 'comptes') renderComptes();
   if (name === 'clients') renderClients();
+  if (name === 'contrats') renderContratsListe();
   if (name === 'users') afficherPageAdmin(state.adminPage);
 }
 
@@ -2793,19 +2812,9 @@ function renderHistoriqueContrats(clientId) {
   if (!clientId) { el.innerHTML = ''; return; }
   const liste = state.contrats.filter(function(c){ return c.clientId === clientId; })
     .sort(function(a, b){ return (b.date || '') < (a.date || '') ? -1 : 1; });
+  el.innerHTML = '';
   if (liste.length === 0) { el.innerHTML = '<div class="tx-meta">Aucun contrat pour l\'instant.</div>'; return; }
-  el.innerHTML = liste.map(function(c){
-    return '<div class="recurrente-carte">' +
-      '<div style="min-width:0;"><div>' + (c.numero ? 'N° ' + escHtml(c.numero) + ' · ' : '') + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</div>' +
-      '<div class="top-montant" style="font-size:13px;">' + formatMoney(c.montant) + '</div></div>' +
-      '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
-        '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-word" data-id="' + c.id + '" title="Réimprimer en Word">📄</button>' +
-        '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
-        (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="modifier-contrat" data-id="' + c.id + '" title="Modifier">✏️</button>' : '') +
-        (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
-      '</div>' +
-    '</div>';
-  }).join('');
+  liste.forEach(function(c){ el.appendChild(construireLigneContrat(c, false)); });
 }
 $('client-historique-contrats').addEventListener('click', function(e){
   const btn = e.target.closest('button[data-action]');
@@ -2888,8 +2897,77 @@ function demarrerEcouteContrats() {
     if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
       renderHistoriqueContrats(state.clientModalId);
     }
+    if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
   }, function(err){ console.error('Ecoute contrats :', err); });
 }
+
+// Ligne réutilisée à la fois dans l'historique d'un client et dans la vue
+// globale "Contrats" — affiche le nom du client seulement si demandé.
+function construireLigneContrat(c, avecNomClient) {
+  const carte = document.createElement('div');
+  carte.className = avecNomClient ? 'card recurrente-carte' : 'recurrente-carte';
+  carte.innerHTML =
+    '<div style="min-width:0;">' +
+      (avecNomClient ? '<div style="font-weight:600;">' + escHtml(c.clientNom || '') + '</div>' : '') +
+      '<div' + (avecNomClient ? ' class="tx-meta"' : '') + '>' + (c.numero ? 'N° ' + escHtml(c.numero) + ' · ' : '') + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</div>' +
+    '</div>' +
+    '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
+      '<span class="tresorerie-tableau-montant">' + formatMoney(c.montant) + '</span>' +
+      '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-word" data-id="' + c.id + '" title="Réimprimer en Word">📄</button>' +
+      '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
+      (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="modifier-contrat" data-id="' + c.id + '" title="Modifier">✏️</button>' : '') +
+      (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
+    '</div>';
+  return carte;
+}
+
+function remplirContratsListeAnnees() {
+  const anneeCourante = String(new Date().getFullYear());
+  const annees = new Set([anneeCourante]);
+  state.contrats.forEach(function(c){ if (c.date) annees.add(c.date.slice(0, 4)); });
+  const anneesTriees = Array.from(annees).sort().reverse();
+  const sel = $('contrats-liste-annee');
+  const valeurActuelle = sel.value || anneeCourante;
+  sel.innerHTML = '';
+  anneesTriees.forEach(function(a){
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    sel.appendChild(opt);
+  });
+  sel.value = anneesTriees.indexOf(valeurActuelle) !== -1 ? valeurActuelle : anneeCourante;
+}
+$('contrats-liste-annee').addEventListener('change', renderContratsListe);
+
+function renderContratsListe() {
+  remplirContratsListeAnnees();
+  const annee = $('contrats-liste-annee').value;
+  const liste = state.contrats.filter(function(c){ return (c.date || '').slice(0, 4) === annee; })
+    .sort(function(a, b){ return (b.date || '') < (a.date || '') ? -1 : 1; });
+
+  const total = liste.reduce(function(s, c){ return s + (Number(c.montant) || 0); }, 0);
+  $('contrats-liste-total').textContent = formatMoney(total);
+  $('contrats-liste-compteur').textContent = liste.length + ' contrat' + (liste.length > 1 ? 's' : '');
+
+  const el = $('contrats-liste-contenu');
+  el.innerHTML = '';
+  $('contrats-liste-empty').classList.toggle('hidden', liste.length > 0);
+  liste.forEach(function(c){ el.appendChild(construireLigneContrat(c, true)); });
+}
+$('contrats-liste-contenu').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const contrat = state.contrats.find(function(c){ return c.id === btn.dataset.id; });
+  if (!contrat) return;
+  if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
+  else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
+  else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
+  else if (btn.dataset.action === 'supprimer-contrat') {
+    if (!confirm('Supprimer ce contrat ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
+    fbDb.collection('contrats').doc(contrat.id).delete()
+      .then(function(){ toast('Contrat supprimé.'); })
+      .catch(function(err){ toast('Erreur : ' + err.message); });
+  }
+});
 
 let contratClientCourant = null;
 brancherAffichageDate('contrat-date', 'contrat-date-display');

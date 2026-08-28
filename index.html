@@ -2790,10 +2790,29 @@ function renderHistoriqueContrats(clientId) {
     .sort(function(a, b){ return (b.date || '') < (a.date || '') ? -1 : 1; });
   if (liste.length === 0) { el.innerHTML = '<div class="tx-meta">Aucun contrat pour l\'instant.</div>'; return; }
   el.innerHTML = liste.map(function(c){
-    return '<div class="top-ligne"><span>' + (c.numero ? 'N° ' + escHtml(c.numero) + ' · ' : '') + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</span>' +
-      '<span class="top-montant">' + formatMoney(c.montant) + '</span></div>';
+    return '<div class="recurrente-carte">' +
+      '<div style="min-width:0;"><div>' + (c.numero ? 'N° ' + escHtml(c.numero) + ' · ' : '') + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</div>' +
+      '<div class="top-montant" style="font-size:13px;">' + formatMoney(c.montant) + '</div></div>' +
+      '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-word" data-id="' + c.id + '" title="Réimprimer en Word">📄</button>' +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
+        (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
+      '</div>' +
+    '</div>';
   }).join('');
 }
+$('client-historique-contrats').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const contrat = state.contrats.find(function(c){ return c.id === btn.dataset.id; });
+  if (!contrat) return;
+  if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
+  else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
+  else if (btn.dataset.action === 'supprimer-contrat') {
+    if (!confirm('Supprimer ce contrat de l\'historique ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
+    fbDb.collection('contrats').doc(contrat.id).delete().catch(function(err){ toast('Erreur : ' + err.message); });
+  }
+});
 
 // Espace un SIRET en groupes 3-3-3-5 (format français standard).
 function formaterSiret(valeur) {
@@ -2907,6 +2926,157 @@ function chargerLibDocxtemplater() {
   return promesseLibDocxtemplater;
 }
 
+// Construit le blob Word rempli à partir des données d'un contrat déjà
+// enregistré (client + contrat) — réutilisé à la création ET à la réimpression.
+function genererDocxContrat(c, contrat) {
+  return Promise.all([chargerLibDocxtemplater(), fetch('./modele-contrat.docx').then(function(r){ return r.arrayBuffer(); })])
+    .then(function(res){
+      const zip = new PizZip(res[1]);
+      const modele = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+      modele.render({
+        numeroContrat: contrat.numero,
+        clientNom: c.nom, clientAdresse: c.adresse || '', clientTelephone: c.telephone || '', clientEmail: c.email || '',
+        clientSiret: c.siret || '', lieu: contrat.lieu, dateContrat: formatDateCourte(contrat.date),
+        horaireDebut: contrat.horaireDebut, horaireFin: contrat.horaireFin,
+        montant: formatNombreSimple(contrat.montant), fraisTransport: formatNombreSimple(contrat.fraisTransport),
+        dateSignatureTexte: formatDateAvecJour(contrat.dateSignature)
+      });
+      const blob = modele.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      return { blob: blob, nomFichier: 'Contrat_' + contrat.numero + '_' + c.nom.replace(/[\/\\]/g, '-') + '.docx' };
+    });
+}
+
+// Construit le PDF équivalent avec jsPDF (mise en page proche du Word, sans
+// être pixel identique) — même logique de réutilisation création/réimpression.
+function genererPdfContrat(c, contrat) {
+  return Promise.all([chargerLibPDF(), fetch('./icon512.png').then(function(r){ return r.blob(); }).then(blobToDataURL)])
+    .then(function(res){
+      const logoDataUrl = res[1];
+      const doc = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      const margeG = 18, margeD = 192;
+      let y = 16;
+
+      doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
+      doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
+      doc.rect(margeG + 24, y, margeD - margeG - 24, 20);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text('Banda ESPERANZA', margeG + 27, y + 5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      [
+        '40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse',
+        'Tél. : 06.03.75.45.50 (Charlotte) \u2013 06.28.28.66.63 (Louanne)',
+        'contact@banda-esperanza.com', 'www.banda-esperanza.com'
+      ].forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 9 + i * 3); });
+      y += 28;
+
+      doc.setFillColor(237, 235, 245);
+      doc.rect(margeG + 40, y, 90, 10, 'FD');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text('CONTRAT D\u2019ENGAGEMENT N\u00b0 ' + contrat.numero, margeG + 85, y + 6.5, { align: 'center' });
+      y += 18;
+
+      doc.setFontSize(9);
+      function ligne(texte, opts) {
+        opts = opts || {};
+        doc.setFont('helvetica', opts.gras ? 'bold' : 'normal');
+        const decalage = opts.indent || 0;
+        const largeurMax = margeD - margeG - decalage;
+        const morceaux = doc.splitTextToSize(texte, largeurMax);
+        morceaux.forEach(function(m){
+          if (y > 275) { doc.addPage(); y = 16; }
+          doc.text(m, margeG + decalage, y);
+          y += (opts.interligne || 4.2);
+        });
+      }
+      function titre(texte) {
+        y += 2;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+        doc.text(texte, margeG, y);
+        doc.setLineWidth(0.2);
+        doc.line(margeG, y + 0.8, margeG + doc.getTextWidth(texte), y + 0.8);
+        doc.setFontSize(9);
+        y += 5;
+      }
+
+      ligne('Entre les soussignés :', { gras: true });
+      y += 1;
+      ligne('Mme PICOT Charlotte & Mme LACAULE Louanne', { gras: true, indent: 4 });
+      ligne('Co-présidente et représentante de l\u2019association Banda Esperanza', { indent: 4 });
+      ligne('Siege social : 40 Ter Avenue Côte d\u2019Argent \u2013 40230 St Vincent de Tyrosse', { indent: 4 });
+      ligne('Tél. : 06.03.75.45.50 (Charlotte) ou 06.28.28.66.63 (Louanne)', { indent: 4 });
+      ligne('Email : contact@banda-esperanza.com', { indent: 4 });
+      ligne('Association Loi 1901 déclarée sous le numéro W401000309 \u2013 SIRET : 793 475 344 00016', { indent: 4 });
+      ligne('Ci-après désigné : « L\u2019association »', { indent: 4 });
+      doc.setFont('helvetica', 'bold'); doc.text('D\u2019une part,', margeD, y, { align: 'right' }); y += 6;
+
+      ligne('ET', { gras: true }); y += 1;
+      ligne(c.nom, { gras: true });
+      ligne('SIRET : ' + (c.siret || ''));
+      ligne('Adresse : ' + (c.adresse || ''), { indent: 4 });
+      ligne('Tel : ' + (c.telephone || ''), { indent: 4 });
+      ligne('Email : ' + (c.email || ''), { indent: 4 });
+      ligne('Ci-après dénommé « L\u2019organisateur »', { indent: 4 });
+      doc.setFont('helvetica', 'bold'); doc.text('D\u2019autre part,', margeD, y, { align: 'right' }); y += 8;
+
+      ligne('Il a été convenu et arrêté ce qui suit :', { gras: true }); y += 2;
+
+      titre('Article I \u2013 Objet :');
+      ligne('L\u2019association s\u2019engage à assurer sa représentation musicale dans les conditions définies ci-dessous :');
+      ligne('1-  Lieu de la représentation : ' + contrat.lieu, { indent: 4 });
+      ligne('2-  Date : ' + formatDateCourte(contrat.date), { indent: 4 });
+      ligne('3-  Horaire : ' + contrat.horaireDebut + ' - ' + contrat.horaireFin, { indent: 4 });
+
+      titre('Article II \u2013 Obligations de l\u2019association :');
+      ligne('1-  L\u2019association s\u2019engage à produire sa représentation musicale et à en assurer la responsabilité artistique.', { indent: 4 });
+      ligne('2-  L\u2019association sera composée de 46 musiciens bénévoles au complet et se réserve le droit d\u2019assurer une animation en effectif réduit.', { indent: 4 });
+
+      titre('Article III \u2013 Obligation de l\u2019organisateur :');
+      ligne('1-  L\u2019organisateur fournira le lieu de représentation en ordre de marche.', { indent: 4 });
+      ligne('2-  Il assurera le service général du lieu : accueil \u2013 sécurité.', { indent: 4 });
+      ligne('3-  Il aura à sa charge les droits d\u2019auteur et en assurera le paiement.', { indent: 4 });
+
+      titre('Article IV \u2013 Conditions financières :');
+      ligne('1-  L\u2019organisateur s\u2019engage, en contrepartie de ce qui précède, à régler les prestations de l\u2019association pour un montant total de ' + formatNombreSimple(contrat.montant) + ' \u20ac', { indent: 4 });
+      ligne('2-  L\u2019organisateur s\u2019engage à rembourser les frais de transport s\u2019élevant à ' + formatNombreSimple(contrat.fraisTransport) + ' \u20ac à l\u2019association.', { indent: 4 });
+      ligne('3-  L\u2019organisateur s\u2019engage donc à régler la somme de ' + formatNombreSimple(contrat.montant) + ' \u20ac soit par :', { indent: 4 });
+      ligne('\u2022  Chèque à l\u2019ordre de : « La Banda ESPERANZA »', { indent: 8 });
+      ligne('\u2022  Espèce', { indent: 8 });
+      ligne('\u2022  Virement (nous contacter)', { indent: 8 });
+
+      titre('Article V \u2013 Hébergement \u2013 Restauration :');
+      ligne('L\u2019organisateur s\u2019engage à assurer les repas, les boissons et l\u2019hébergement (si nécessaire) des personnes composant l\u2019association.');
+
+      titre('Article VI \u2013 Assurances :');
+      ligne('1-  L\u2019association possède sa propre responsabilité civile souscrite auprès de la compagnie d\u2019assurance SERENIS ASSURANCES au terme du contrat n\u00b0VD 7.000.004 - 40230-01', { indent: 4 });
+      ligne('2-  L\u2019organisateur s\u2019engage à couvrir par sa propre assurance tous les préjudices humains ou/et matériels causés aux membres de l\u2019association.', { indent: 4 });
+
+      titre('Article VII \u2013 Annulation :');
+      ligne('1-  L\u2019annulation du contrat n\u2019est possible qu\u2019après accord entre les deux parties.', { indent: 4 });
+      ligne('2-  Si l\u2019annulation par l\u2019organisateur survient dans les 15 jours avant la date fixée de la date représentation, il incombe à l\u2019organisateur de dédommager l\u2019association du tiers de la somme fixée ci-dessus', { indent: 4 });
+
+      titre('Article VIII \u2013 Contentieux :');
+      ligne('En cas de litige portant sur l\u2019interprétation ou l\u2019application du présent contrat, les parties conviennent de s\u2019en remettre à l\u2019appréciation du Tribunal de DAX, après épuisement des voies amiables.');
+
+      y += 6;
+      ligne('Fait à St Vincent de Tyrosse en 2 exemplaires originaux, le ' + formatDateAvecJour(contrat.dateSignature));
+      y += 10;
+      doc.setFont('helvetica', 'bold');
+      doc.text('L\u2019association,', margeG, y);
+      doc.text('L\u2019Organisateur,', margeG + 90, y);
+
+      return { blob: doc.output('blob'), nomFichier: 'Contrat_' + contrat.numero + '_' + c.nom.replace(/[\/\\]/g, '-') + '.pdf' };
+    });
+}
+
+function blobToDataURL(blob) {
+  return new Promise(function(resolve, reject){
+    const reader = new FileReader();
+    reader.onload = function(){ resolve(reader.result); };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 $('btn-contrat-generer').addEventListener('click', function(){
   const c = contratClientCourant;
   if (!c) return;
@@ -2937,35 +3107,38 @@ $('btn-contrat-generer').addEventListener('click', function(){
     creeLe: firebase.firestore.FieldValue.serverTimestamp()
   };
 
-  Promise.all([chargerLibDocxtemplater(), fetch('./modele-contrat.docx').then(function(r){ return r.arrayBuffer(); }), genererNumeroContrat(date.slice(0, 4))])
-    .then(function(res){
-      const contenuModele = res[1];
-      const numeroContrat = res[2];
-      donneesContrat.numero = numeroContrat;
-      const zip = new PizZip(contenuModele);
-      const modele = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-      modele.render({
-        numeroContrat: numeroContrat,
-        clientNom: c.nom, clientAdresse: c.adresse || '', clientTelephone: c.telephone || '', clientEmail: c.email || '',
-        clientSiret: c.siret || '', lieu: lieu, dateContrat: formatDateCourte(date), horaireDebut: horaireDebut, horaireFin: horaireFin,
-        montant: formatNombreSimple(montant), fraisTransport: formatNombreSimple(fraisTransport),
-        dateSignatureTexte: formatDateAvecJour(dateSignature)
-      });
-      const blob = modele.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-      const nomFichier = 'Contrat_' + numeroContrat + '_' + c.nom.replace(/[\/\\]/g, '-') + '.docx';
-      window.saveAs(blob, nomFichier);
-      statusEl.textContent = 'Contrat ' + numeroContrat + ' généré.';
-      return fbDb.collection('contrats').add(donneesContrat);
-    }).then(function(){
-      toast('Contrat créé et téléchargé.');
-      renderHistoriqueContrats(c.id);
-      $('contrat-modal-backdrop').classList.add('hidden');
-    }).catch(function(err){
-      console.error(err);
-      statusEl.textContent = 'Erreur : ' + err.message;
-      toast('Erreur : ' + err.message);
-    }).then(function(){ btn.disabled = false; });
+  genererNumeroContrat(date.slice(0, 4)).then(function(numeroContrat){
+    donneesContrat.numero = numeroContrat;
+    return Promise.all([genererDocxContrat(c, donneesContrat), genererPdfContrat(c, donneesContrat)]);
+  }).then(function(res){
+    window.saveAs(res[0].blob, res[0].nomFichier);
+    window.saveAs(res[1].blob, res[1].nomFichier);
+    statusEl.textContent = 'Contrat ' + donneesContrat.numero + ' généré (Word + PDF).';
+    return fbDb.collection('contrats').add(donneesContrat);
+  }).then(function(){
+    toast('Contrat créé et téléchargé.');
+    renderHistoriqueContrats(c.id);
+    $('contrat-modal-backdrop').classList.add('hidden');
+  }).catch(function(err){
+    console.error(err);
+    statusEl.textContent = 'Erreur : ' + err.message;
+    toast('Erreur : ' + err.message);
+  }).then(function(){ btn.disabled = false; });
 });
+
+// Réimpression depuis l'historique de la fiche client : régénère à partir
+// des données déjà enregistrées, sans consommer un nouveau numéro.
+function reimprimerContrat(contrat, format) {
+  const c = state.clients.find(function(x){ return x.id === contrat.clientId; });
+  if (!c) { toast('Client introuvable.'); return; }
+  toast('Génération en cours…');
+  const promesse = format === 'pdf' ? genererPdfContrat(c, contrat) : genererDocxContrat(c, contrat);
+  promesse.then(function(res){
+    window.saveAs(res.blob, res.nomFichier);
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  });
+}
 
 function formatDateCourte(iso) {
   if (!iso) return '';

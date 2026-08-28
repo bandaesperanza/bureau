@@ -3103,7 +3103,7 @@ function chargerLibDocxtemplater() {
   if (promesseLibDocxtemplater) return promesseLibDocxtemplater;
   promesseLibDocxtemplater = chargerScript('https://unpkg.com/pizzip@3.2.0/dist/pizzip.js')
     .then(function(){ return chargerScript('https://unpkg.com/docxtemplater@3.69.0/build/docxtemplater.js'); })
-    .then(function(){ return chargerScript('https://unpkg.com/file-saver@1.3.8/FileSaver.js'); })
+    .then(function(){ return chargerLibFileSaver(); })
     .catch(function(err){ promesseLibDocxtemplater = null; throw err; });
   return promesseLibDocxtemplater;
 }
@@ -3132,9 +3132,9 @@ function genererDocxContrat(c, contrat) {
 // Construit le PDF équivalent avec jsPDF (mise en page proche du Word, sans
 // être pixel identique) — même logique de réutilisation création/réimpression.
 function genererPdfContrat(c, contrat) {
-  return Promise.all([chargerLibPDF(), fetch('./logo-header.png').then(function(r){ return r.blob(); }).then(blobToDataURL)])
+  return Promise.all([chargerLibPDF(), chargerLibFileSaver(), fetch('./logo-header.png').then(function(r){ return r.blob(); }).then(blobToDataURL)])
     .then(function(res){
-      const logoDataUrl = res[1];
+      const logoDataUrl = res[2];
       const doc = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
       const margeG = 18, margeD = 192;
       let y = 16;
@@ -3588,6 +3588,17 @@ function chargerLibPDF() {
     .then(function(){ return chargerScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'); })
     .catch(function(err){ promesseLibPDF = null; throw err; });
   return promesseLibPDF;
+}
+
+// Chargement paresseux de FileSaver (window.saveAs) — nécessaire dès qu'on
+// déclenche un téléchargement de fichier généré (PDF de contrat, Word...).
+let promesseLibFileSaver = null;
+function chargerLibFileSaver() {
+  if (window.saveAs) return Promise.resolve();
+  if (promesseLibFileSaver) return promesseLibFileSaver;
+  promesseLibFileSaver = chargerScript('https://unpkg.com/file-saver@1.3.8/FileSaver.js')
+    .catch(function(err){ promesseLibFileSaver = null; throw err; });
+  return promesseLibFileSaver;
 }
 
 function genererExcelBilanAnnuel(data) {

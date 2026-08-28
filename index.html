@@ -375,7 +375,7 @@
     background: var(--paper); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 15px;
     min-height: 44px; box-sizing: border-box; display: flex; align-items: center;
   }
-  .date-field-wrap input[type="date"] {
+  .date-field-wrap input[type="date"], .date-field-wrap input[type="time"] {
     position: absolute; inset: 0; width: 100%; height: 100%;
     opacity: 0; margin: 0; padding: 0; border: none; min-height: 0;
   }
@@ -386,7 +386,7 @@
      natif, qui gère lui-même son icône de calendrier et la saisie clavier. */
   @media (min-width: 700px) {
     .date-display { display: none; }
-    .date-field-wrap input[type="date"] {
+    .date-field-wrap input[type="date"], .date-field-wrap input[type="time"] {
       position: static; opacity: 1; width: 100%; padding: 11px 12px;
       border: 1px solid var(--rule); border-radius: 10px; background: var(--paper);
       color: var(--ink); font-family: 'Inter', sans-serif; font-size: 15px;
@@ -1632,6 +1632,22 @@ function genererNumeroTransaction(annee) {
   });
 }
 
+// Numéro de contrat "AAAA-NNN" (ex. 2026-001), compteur séparé de celui des
+// transactions, remis à zéro chaque année.
+function genererNumeroContrat(annee) {
+  const ref = fbDb.collection('compteursContrats').doc(String(annee));
+  return fbDb.runTransaction(function(transaction){
+    return transaction.get(ref).then(function(doc){
+      const dernier = (doc.exists && doc.data().dernier) ? doc.data().dernier : 0;
+      const nouveau = dernier + 1;
+      transaction.set(ref, { dernier: nouveau });
+      return nouveau;
+    });
+  }).then(function(nouveau){
+    return String(annee) + '-' + String(nouveau).padStart(3, '0');
+  });
+}
+
 // Sous-activités par défaut, extraites de l'onglet "Bilan Annuel" du fichier
 // Suivi_compte_2025.xlsm (colonne C pour les dépenses, colonne I pour les
 // recettes). Injectées uniquement pour une activité qui n'a encore aucune
@@ -2774,7 +2790,7 @@ function renderHistoriqueContrats(clientId) {
     .sort(function(a, b){ return (b.date || '') < (a.date || '') ? -1 : 1; });
   if (liste.length === 0) { el.innerHTML = '<div class="tx-meta">Aucun contrat pour l\'instant.</div>'; return; }
   el.innerHTML = liste.map(function(c){
-    return '<div class="top-ligne"><span>' + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</span>' +
+    return '<div class="top-ligne"><span>' + (c.numero ? 'N° ' + escHtml(c.numero) + ' · ' : '') + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</span>' +
       '<span class="top-montant">' + formatMoney(c.montant) + '</span></div>';
   }).join('');
 }
@@ -2921,21 +2937,24 @@ $('btn-contrat-generer').addEventListener('click', function(){
     creeLe: firebase.firestore.FieldValue.serverTimestamp()
   };
 
-  Promise.all([chargerLibDocxtemplater(), fetch('./modele-contrat.docx').then(function(r){ return r.arrayBuffer(); })])
+  Promise.all([chargerLibDocxtemplater(), fetch('./modele-contrat.docx').then(function(r){ return r.arrayBuffer(); }), genererNumeroContrat(date.slice(0, 4))])
     .then(function(res){
       const contenuModele = res[1];
+      const numeroContrat = res[2];
+      donneesContrat.numero = numeroContrat;
       const zip = new PizZip(contenuModele);
       const modele = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
       modele.render({
+        numeroContrat: numeroContrat,
         clientNom: c.nom, clientAdresse: c.adresse || '', clientTelephone: c.telephone || '', clientEmail: c.email || '',
-        lieu: lieu, dateContrat: formatDateCourte(date), horaireDebut: horaireDebut, horaireFin: horaireFin,
+        clientSiret: c.siret || '', lieu: lieu, dateContrat: formatDateCourte(date), horaireDebut: horaireDebut, horaireFin: horaireFin,
         montant: formatNombreSimple(montant), fraisTransport: formatNombreSimple(fraisTransport),
         dateSignatureTexte: formatDateAvecJour(dateSignature)
       });
       const blob = modele.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-      const nomFichier = 'Contrat_' + c.nom.replace(/[\/\\]/g, '-') + '_' + date + '.docx';
+      const nomFichier = 'Contrat_' + numeroContrat + '_' + c.nom.replace(/[\/\\]/g, '-') + '.docx';
       window.saveAs(blob, nomFichier);
-      statusEl.textContent = 'Contrat généré.';
+      statusEl.textContent = 'Contrat ' + numeroContrat + ' généré.';
       return fbDb.collection('contrats').add(donneesContrat);
     }).then(function(){
       toast('Contrat créé et téléchargé.');

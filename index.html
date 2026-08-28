@@ -956,6 +956,12 @@
     <!-- ---------- Contrats (vue globale, par année, tous clients confondus) ---------- -->
     <section id="view-contrats" class="view">
       <div class="card">
+        <label class="field-label">Nouveau contrat pour</label>
+        <select id="contrats-liste-nouveau-client"><option value="">— Choisir un client —</option></select>
+        <button class="btn btn-primary" id="btn-contrats-liste-nouveau" style="margin-top:10px;">＋ Nouveau contrat</button>
+      </div>
+
+      <div class="card">
         <label class="field-label">Année</label>
         <select id="contrats-liste-annee"></select>
       </div>
@@ -2913,7 +2919,9 @@ function construireLigneContrat(c, avecNomClient) {
     '</div>' +
     '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
       '<span class="tresorerie-tableau-montant">' + formatMoney(c.montant) + '</span>' +
-      '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-word" data-id="' + c.id + '" title="Réimprimer en Word">📄</button>' +
+      /* Bouton "Réimprimer en Word" masqué pour l'instant (fonction gardée
+         intacte, reimprimerContrat(contrat, 'word') reste utilisable si on
+         décide de le remettre) — data-action="reimprimer-word" toujours géré. */
       '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
       (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="modifier-contrat" data-id="' + c.id + '" title="Modifier">✏️</button>' : '') +
       (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
@@ -2938,8 +2946,28 @@ function remplirContratsListeAnnees() {
 }
 $('contrats-liste-annee').addEventListener('change', renderContratsListe);
 
+function remplirContratsListeClients() {
+  const sel = $('contrats-liste-nouveau-client');
+  const valeurActuelle = sel.value;
+  sel.innerHTML = '<option value="">— Choisir un client —</option>';
+  state.clients.slice().sort(function(a, b){ return a.nom.localeCompare(b.nom); }).forEach(function(c){
+    const opt = document.createElement('option');
+    opt.value = c.id; opt.textContent = c.nom;
+    sel.appendChild(opt);
+  });
+  if (state.clients.some(function(c){ return c.id === valeurActuelle; })) sel.value = valeurActuelle;
+}
+$('btn-contrats-liste-nouveau').addEventListener('click', function(){
+  const id = $('contrats-liste-nouveau-client').value;
+  if (!id) { toast('Choisis un client.'); return; }
+  const c = state.clients.find(function(x){ return x.id === id; });
+  if (!c) return;
+  ouvrirModaleContrat(c, null);
+});
+
 function renderContratsListe() {
   remplirContratsListeAnnees();
+  remplirContratsListeClients();
   const annee = $('contrats-liste-annee').value;
   const liste = state.contrats.filter(function(c){ return (c.date || '').slice(0, 4) === annee; })
     .sort(function(a, b){ return (b.date || '') < (a.date || '') ? -1 : 1; });

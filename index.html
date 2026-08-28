@@ -723,6 +723,11 @@
           <div class="empty-state hidden" id="recurrentes-empty">Aucune opération à venir pour l'instant.</div>
         </div>
 
+        <div id="recurrentes-traitees-zone" class="card hidden">
+          <div id="recurrentes-traitees-lien" style="cursor:pointer; color:var(--focus); font-weight:600; font-size:13px;"></div>
+          <div id="recurrentes-traitees-liste" class="hidden" style="margin-top:10px;"></div>
+        </div>
+
         <div class="section-title">Nouvelle opération à venir</div>
         <div class="card">
           <div class="tx-meta" style="margin-bottom:10px;">
@@ -2273,14 +2278,24 @@ function remplirSelectsRecurrente() {
 function remplirSousActivitesRecurrente() {
   const liste = recurrenteTypeCourant === 'depense' ? state.activitesDepenses : state.activitesRecettes;
   const act = (liste || []).find(function(a){ return a.nom === $('rec-activite').value; });
-  const sel = $('rec-sousactivite');
-  sel.innerHTML = '<option value="">— Choisir —</option>';
-  (act ? act.sousActivites : []).forEach(function(s){
-    const opt = document.createElement('option');
-    opt.value = s; opt.textContent = s;
-    sel.appendChild(opt);
-  });
+  remplirOptionsSousActivite($('rec-sousactivite'), act);
 }
+$('rec-sousactivite').addEventListener('change', function(){
+  if (this.value !== VALEUR_AJOUT_SOUS_ACTIVITE) return;
+  const liste = recurrenteTypeCourant === 'depense' ? state.activitesDepenses : state.activitesRecettes;
+  const nomActivite = $('rec-activite').value;
+  const type = recurrenteTypeCourant;
+  const nouvelle = demanderNouvelleSousActivite(liste, nomActivite);
+  if (!nouvelle) { remplirSousActivitesRecurrente(); return; }
+  sauvegarderActivites(type).then(function(){
+    remplirSousActivitesRecurrente();
+    $('rec-sousactivite').value = nouvelle;
+    toast('Sous-activité ajoutée.');
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+    remplirSousActivitesRecurrente();
+  });
+});
 $('rec-activite').addEventListener('change', remplirSousActivitesRecurrente);
 $('recswitch-depense').addEventListener('click', function(){
   recurrenteTypeCourant = 'depense';
@@ -2351,35 +2366,65 @@ $('btn-recurrente-creer').addEventListener('click', function(){
   }).then(function(){ btn.disabled = false; });
 });
 
+let recurrentesTraiteesVisibles = false;
+
 function renderRecurrentesListe() {
   const el = $('recurrentes-liste');
   el.innerHTML = '';
-  $('recurrentes-empty').classList.toggle('hidden', state.recurrentes.length > 0);
-  state.recurrentes.slice().sort(function(a, b){
-    const cleA = a.frequence === 'ponctuelle' ? (a.date || '') : '9999-' + String(a.jourDuMois || 0).padStart(2, '0');
-    const cleB = b.frequence === 'ponctuelle' ? (b.date || '') : '9999-' + String(b.jourDuMois || 0).padStart(2, '0');
-    return cleA < cleB ? -1 : cleA > cleB ? 1 : 0;
-  }).forEach(function(r){
+
+  const enCours = state.recurrentes.filter(function(r){ return !(r.frequence === 'ponctuelle' && r.traite === true); });
+  const traitees = state.recurrentes.filter(function(r){ return r.frequence === 'ponctuelle' && r.traite === true; });
+
+  $('recurrentes-empty').classList.toggle('hidden', enCours.length > 0);
+
+  function construireCarte(r) {
     const estPonctuelle = r.frequence === 'ponctuelle';
     const actif = r.actif !== false;
     const poussee = r.forcerAffichage === true;
     const quand = estPonctuelle ? 'Le ' + formatDateShort(r.date) : 'Jour ' + r.jourDuMois + ' de chaque mois';
     const carte = document.createElement('div');
     carte.className = 'recurrente-carte';
+    const boutons = r.traite
+      ? '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-id="' + r.id + '">🗑</button>'
+      : (actif && !poussee ? '<button class="btn btn-drive" style="width:auto; padding:6px 10px;" data-action="pousser" data-id="' + r.id + '" title="Faire apparaître maintenant sur l\'Accueil, sans attendre la date prévue">📌</button>' : '') +
+        (estPonctuelle ? '' : '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="toggle" data-id="' + r.id + '">' + (actif ? '⏸' : '▶') + '</button>') +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-id="' + r.id + '">🗑</button>';
     carte.innerHTML =
-      '<div style="min-width:0; opacity:' + (actif ? '1' : '0.5') + ';">' +
-        '<div style="font-weight:600;">' + escHtml(r.libelle) + (poussee ? ' <span class="tx-meta" style="color:var(--focus);">· poussée sur l\'Accueil</span>' : '') + '</div>' +
+      '<div style="min-width:0; opacity:' + (actif && !r.traite ? '1' : '0.5') + ';">' +
+        '<div style="font-weight:600;">' + escHtml(r.libelle) + (poussee ? ' <span class="tx-meta" style="color:var(--focus);">· poussée sur l\'Accueil</span>' : '') + (r.traite ? ' <span class="tx-meta">· traitée</span>' : '') + '</div>' +
         '<div class="tx-meta">' + (estPonctuelle ? '📅 ' : '🔁 ') + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + ' · ' + quand + ' · ' + (r.type === 'recette' ? 'Recette' : 'Dépense') + '</div>' +
       '</div>' +
       '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">' +
-        '<span class="tresorerie-tableau-montant" style="opacity:' + (actif ? '1' : '0.5') + ';">' + formatMoney(r.montant) + '</span>' +
-        (actif && !poussee ? '<button class="btn btn-drive" style="width:auto; padding:6px 10px;" data-action="pousser" data-id="' + r.id + '" title="Faire apparaître maintenant sur l\'Accueil, sans attendre la date prévue">📌</button>' : '') +
-        (estPonctuelle ? '' : '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="toggle" data-id="' + r.id + '">' + (actif ? '⏸' : '▶') + '</button>') +
-        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-id="' + r.id + '">🗑</button>' +
+        '<span class="tresorerie-tableau-montant" style="opacity:' + (actif && !r.traite ? '1' : '0.5') + ';">' + formatMoney(r.montant) + '</span>' +
+        boutons +
       '</div>';
-    el.appendChild(carte);
-  });
+    return carte;
+  }
+
+  enCours.slice().sort(function(a, b){
+    const cleA = a.frequence === 'ponctuelle' ? (a.date || '') : '9999-' + String(a.jourDuMois || 0).padStart(2, '0');
+    const cleB = b.frequence === 'ponctuelle' ? (b.date || '') : '9999-' + String(b.jourDuMois || 0).padStart(2, '0');
+    return cleA < cleB ? -1 : cleA > cleB ? 1 : 0;
+  }).forEach(function(r){ el.appendChild(construireCarte(r)); });
+
+  const zoneTraitees = $('recurrentes-traitees-zone');
+  if (traitees.length === 0) {
+    zoneTraitees.classList.add('hidden');
+  } else {
+    zoneTraitees.classList.remove('hidden');
+    $('recurrentes-traitees-lien').textContent = (recurrentesTraiteesVisibles ? '▴ Masquer' : '▾ Afficher') + ' les ' + traitees.length + ' opération(s) ponctuelle(s) déjà traitée(s)';
+    const listeTraitees = $('recurrentes-traitees-liste');
+    listeTraitees.classList.toggle('hidden', !recurrentesTraiteesVisibles);
+    listeTraitees.innerHTML = '';
+    if (recurrentesTraiteesVisibles) {
+      traitees.forEach(function(r){ listeTraitees.appendChild(construireCarte(r)); });
+    }
+  }
 }
+$('recurrentes-traitees-lien').addEventListener('click', function(){
+  recurrentesTraiteesVisibles = !recurrentesTraiteesVisibles;
+  renderRecurrentesListe();
+});
 $('recurrentes-liste').addEventListener('click', function(e){
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;

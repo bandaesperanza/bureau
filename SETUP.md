@@ -69,6 +69,11 @@ service cloud.firestore {
       allow read, create, update: if estActif();
       allow delete: if estAdmin();
     }
+
+    match /contrats/{id} {
+      allow read, create: if estActif();
+      allow update, delete: if estAdmin();
+    }
   }
 }
 ```

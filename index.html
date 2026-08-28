@@ -1107,12 +1107,66 @@
     <textarea id="client-notes" placeholder="Notes libres…"></textarea>
 
     <div class="section-title" style="margin-top:16px;">Historique des contrats</div>
-    <div id="client-historique-contrats" class="tx-meta">Aucun contrat pour l'instant — arrive à la phase suivante du projet.</div>
+    <div id="client-historique-contrats"></div>
+    <button class="btn btn-drive hidden" id="btn-client-nouveau-contrat" style="margin-top:8px;">📄 Nouveau contrat</button>
 
     <div style="display:flex; gap:8px; margin-top:18px;">
       <button class="btn btn-secondary" id="btn-client-fermer" style="width:auto; flex:1;">Fermer</button>
       <button class="btn btn-ghost hidden" id="btn-client-supprimer" style="width:auto; flex:1; color:var(--stamp); border-color:var(--stamp);">Supprimer</button>
       <button class="btn btn-primary" id="btn-client-enregistrer" style="width:auto; flex:1;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Modale Contrat (nouveau contrat pour un client) ---------- -->
+<div class="modal-backdrop hidden" id="contrat-modal-backdrop">
+  <div class="modal-sheet">
+    <h2 class="modal-title">Nouveau contrat</h2>
+    <div class="tx-meta" id="contrat-client-nom" style="margin-bottom:14px; font-weight:600; font-size:15px; color:var(--ink);"></div>
+
+    <label class="field-label">Lieu de la représentation</label>
+    <input type="text" id="contrat-lieu" placeholder="Ex. Saint-Geours-de-Maremne - Salle des fêtes">
+
+    <label class="field-label">Date de la représentation</label>
+    <div class="date-field-wrap">
+      <div class="date-display" id="contrat-date-display">Choisir…</div>
+      <input type="date" id="contrat-date">
+    </div>
+
+    <label class="field-label">Horaire</label>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="time" id="contrat-horaire-debut">
+      <span class="tx-meta">à</span>
+      <input type="time" id="contrat-horaire-fin">
+    </div>
+
+    <label class="field-label">Effectif musiciens</label>
+    <input type="number" id="contrat-effectif" min="1" value="46">
+
+    <label class="field-label">Montant (€)</label>
+    <input type="number" id="contrat-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+
+    <label class="field-label">Remboursement frais de transport (€)</label>
+    <input type="number" id="contrat-frais-transport" inputmode="decimal" step="0.01" min="0" placeholder="0.00 (laisser vide si aucun)">
+
+    <label class="field-label">Moyen de paiement</label>
+    <select id="contrat-moyen">
+      <option value="cheque">Chèque à l'ordre de « La Banda ESPERANZA »</option>
+      <option value="espece">Espèces</option>
+      <option value="virement">Virement (nous contacter)</option>
+    </select>
+
+    <label class="field-label">Date de signature</label>
+    <div class="date-field-wrap">
+      <div class="date-display" id="contrat-datesignature-display">Choisir…</div>
+      <input type="date" id="contrat-datesignature">
+    </div>
+
+    <div id="contrat-generation-status" class="tx-meta" style="margin-top:10px;"></div>
+
+    <div style="display:flex; gap:8px; margin-top:18px;">
+      <button class="btn btn-secondary" id="btn-contrat-fermer" style="width:auto; flex:1;">Fermer</button>
+      <button class="btn btn-primary" id="btn-contrat-generer" style="width:auto; flex:1;">📄 Générer le Word</button>
     </div>
   </div>
 </div>
@@ -1192,6 +1246,7 @@ const state = {
   clients: [],
   clientRecherche: '',
   clientModalId: null,
+  contrats: [],
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -1206,7 +1261,7 @@ const state = {
 };
 state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
-let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null, unsubClients = null;
+let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null, unsubClients = null, unsubContrats = null;
 
 /* ============================================================
    UTILITAIRES
@@ -1235,6 +1290,14 @@ function formatDateLongue(iso) {
   if (!iso) return 'Choisir…';
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+// Avec le jour de la semaine (pour les formules de signature de contrat,
+// ex. "lundi 09 mars 2026").
+function formatDateAvecJour(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 }
 
 // Relie un input[type=date] (invisible) à son bloc d'affichage stylé, en
@@ -1475,6 +1538,7 @@ fbAuth.onAuthStateChanged(function(user){
   if (unsubTransferts) { unsubTransferts(); unsubTransferts = null; }
   if (unsubRecurrentes) { unsubRecurrentes(); unsubRecurrentes = null; }
   if (unsubClients) { unsubClients(); unsubClients = null; }
+  if (unsubContrats) { unsubContrats(); unsubContrats = null; }
 
   if (!user) {
     state.user = null; state.role = null;
@@ -1518,6 +1582,7 @@ fbAuth.onAuthStateChanged(function(user){
       demarrerEcouteTransferts();
       demarrerEcouteRecurrentes();
       demarrerEcouteClients();
+      demarrerEcouteContrats();
       remplirSelectsActivite();
       remplirSelectsRecurrente();
       if (isAdmin) {
@@ -2690,10 +2755,23 @@ function ouvrirModaleClient(id) {
   $('client-siret').value = c ? formaterSiret(c.siret || '') : '';
   $('client-notes').value = c ? (c.notes || '') : '';
   $('btn-client-supprimer').classList.toggle('hidden', !c);
-  $('client-historique-contrats').textContent = 'Aucun contrat pour l\'instant — arrive à la phase suivante du projet.';
+  $('btn-client-nouveau-contrat').classList.toggle('hidden', !c);
+  renderHistoriqueContrats(id);
   $('client-modal-backdrop').classList.remove('hidden');
 }
 $('btn-nouveau-client').addEventListener('click', function(){ ouvrirModaleClient(null); });
+
+function renderHistoriqueContrats(clientId) {
+  const el = $('client-historique-contrats');
+  if (!clientId) { el.innerHTML = ''; return; }
+  const liste = state.contrats.filter(function(c){ return c.clientId === clientId; })
+    .sort(function(a, b){ return (b.date || '') < (a.date || '') ? -1 : 1; });
+  if (liste.length === 0) { el.innerHTML = '<div class="tx-meta">Aucun contrat pour l\'instant.</div>'; return; }
+  el.innerHTML = liste.map(function(c){
+    return '<div class="top-ligne"><span>' + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</span>' +
+      '<span class="top-montant">' + formatMoney(c.montant) + '</span></div>';
+  }).join('');
+}
 
 // Espace un SIRET en groupes 3-3-3-5 (format français standard).
 function formaterSiret(valeur) {
@@ -2746,6 +2824,138 @@ $('btn-client-supprimer').addEventListener('click', function(){
     $('client-modal-backdrop').classList.add('hidden');
   }).catch(function(err){ toast('Erreur : ' + err.message); });
 });
+
+
+/* ============================================================
+   CONTRATS — génération du contrat Word (modèle fidèle à l'original)
+   à partir des infos d'un client, avec archivage de l'historique.
+   ============================================================ */
+const TEXTE_MOYEN_PAIEMENT = {
+  cheque: 'Chèque à l\u2019ordre de « La Banda ESPERANZA »',
+  espece: 'Espèces',
+  virement: 'Virement (nous contacter)'
+};
+
+function demarrerEcouteContrats() {
+  if (unsubContrats) unsubContrats();
+  unsubContrats = fbDb.collection('contrats').onSnapshot(function(snap){
+    state.contrats = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
+      renderHistoriqueContrats(state.clientModalId);
+    }
+  }, function(err){ console.error('Ecoute contrats :', err); });
+}
+
+let contratClientCourant = null;
+brancherAffichageDate('contrat-date', 'contrat-date-display');
+brancherAffichageDate('contrat-datesignature', 'contrat-datesignature-display');
+
+$('btn-client-nouveau-contrat').addEventListener('click', function(){
+  const c = state.clients.find(function(x){ return x.id === state.clientModalId; });
+  if (!c) return;
+  contratClientCourant = c;
+  $('contrat-client-nom').textContent = c.nom;
+  $('contrat-lieu').value = '';
+  $('contrat-date').value = '';
+  $('contrat-date-display').textContent = 'Choisir…';
+  $('contrat-horaire-debut').value = '19:00';
+  $('contrat-horaire-fin').value = '22:00';
+  $('contrat-effectif').value = 46;
+  $('contrat-montant').value = '';
+  $('contrat-frais-transport').value = '';
+  $('contrat-moyen').value = 'cheque';
+  $('contrat-datesignature').value = todayIso();
+  $('contrat-datesignature-display').textContent = formatDateLongue(todayIso());
+  $('contrat-generation-status').textContent = '';
+  $('client-modal-backdrop').classList.add('hidden');
+  $('contrat-modal-backdrop').classList.remove('hidden');
+});
+$('btn-contrat-fermer').addEventListener('click', function(){ $('contrat-modal-backdrop').classList.add('hidden'); });
+$('contrat-modal-backdrop').addEventListener('click', function(e){
+  if (e.target === this) this.classList.add('hidden');
+});
+
+// Chargement paresseux de docxtemplater + PizZip + FileSaver (génération
+// du contrat Word uniquement, pas nécessaire au chargement normal de l'app).
+let promesseLibDocxtemplater = null;
+function chargerLibDocxtemplater() {
+  if (window.docxtemplater && window.PizZip && window.saveAs) return Promise.resolve();
+  if (promesseLibDocxtemplater) return promesseLibDocxtemplater;
+  promesseLibDocxtemplater = chargerScript('https://unpkg.com/pizzip/dist/pizzip.js')
+    .then(function(){ return chargerScript('https://unpkg.com/docxtemplater/js/docxtemplater.js'); })
+    .then(function(){ return chargerScript('https://unpkg.com/file-saver/dist/FileSaver.min.js'); })
+    .catch(function(err){ promesseLibDocxtemplater = null; throw err; });
+  return promesseLibDocxtemplater;
+}
+
+$('btn-contrat-generer').addEventListener('click', function(){
+  const c = contratClientCourant;
+  if (!c) return;
+  const lieu = $('contrat-lieu').value.trim();
+  const date = $('contrat-date').value;
+  const horaireDebut = $('contrat-horaire-debut').value;
+  const horaireFin = $('contrat-horaire-fin').value;
+  const effectif = parseInt($('contrat-effectif').value, 10) || 46;
+  const montant = parseFloat($('contrat-montant').value);
+  const fraisTransport = parseFloat($('contrat-frais-transport').value) || 0;
+  const moyen = $('contrat-moyen').value;
+  const dateSignature = $('contrat-datesignature').value;
+
+  if (!lieu) { toast('Lieu obligatoire.'); return; }
+  if (!date) { toast('Date de la représentation obligatoire.'); return; }
+  if (!horaireDebut || !horaireFin) { toast('Horaire obligatoire.'); return; }
+  if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
+  if (!dateSignature) { toast('Date de signature obligatoire.'); return; }
+
+  const statusEl = $('contrat-generation-status');
+  const btn = $('btn-contrat-generer');
+  btn.disabled = true;
+  statusEl.textContent = 'Génération du contrat…';
+
+  const donneesContrat = {
+    clientId: c.id, clientNom: c.nom, lieu: lieu, date: date,
+    horaireDebut: horaireDebut, horaireFin: horaireFin, effectif: effectif,
+    montant: montant, fraisTransport: fraisTransport, moyenPaiement: moyen,
+    dateSignature: dateSignature, creeParUid: state.user.uid, creeParEmail: state.user.email,
+    creeLe: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  Promise.all([chargerLibDocxtemplater(), fetch('./modele-contrat.docx').then(function(r){ return r.arrayBuffer(); })])
+    .then(function(res){
+      const contenuModele = res[1];
+      const zip = new PizZip(contenuModele);
+      const modele = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+      modele.render({
+        clientNom: c.nom, clientAdresse: c.adresse || '', clientTelephone: c.telephone || '', clientEmail: c.email || '',
+        lieu: lieu, dateContrat: formatDateCourte(date), horaireDebut: horaireDebut, horaireFin: horaireFin,
+        effectif: String(effectif), montant: formatNombreSimple(montant), fraisTransport: formatNombreSimple(fraisTransport),
+        moyenPaiementTexte: TEXTE_MOYEN_PAIEMENT[moyen], dateSignatureTexte: formatDateAvecJour(dateSignature)
+      });
+      const blob = modele.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      const nomFichier = 'Contrat_' + c.nom.replace(/[\/\\]/g, '-') + '_' + date + '.docx';
+      window.saveAs(blob, nomFichier);
+      statusEl.textContent = 'Contrat généré.';
+      return fbDb.collection('contrats').add(donneesContrat);
+    }).then(function(){
+      toast('Contrat créé et téléchargé.');
+      renderHistoriqueContrats(c.id);
+      $('contrat-modal-backdrop').classList.add('hidden');
+    }).catch(function(err){
+      console.error(err);
+      statusEl.textContent = 'Erreur : ' + err.message;
+      toast('Erreur : ' + err.message);
+    }).then(function(){ btn.disabled = false; });
+});
+
+function formatDateCourte(iso) {
+  if (!iso) return '';
+  const [a, m, j] = iso.split('-');
+  return j + '/' + m + '/' + a;
+}
+function formatNombreSimple(n) {
+  const v = Number(n) || 0;
+  return (Math.round(v * 100) / 100).toString().replace('.', ',');
+}
 
 
 /* ============================================================

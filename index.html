@@ -1158,11 +1158,15 @@
       <input type="date" id="contrat-datesignature">
     </div>
 
+    <label class="field-label">Signature (association) — signe avec le doigt</label>
+    <canvas id="contrat-signature-canvas" width="500" height="150" style="width:100%; height:150px; border:1px solid var(--rule); border-radius:10px; background:var(--paper); touch-action:none; display:block;"></canvas>
+    <button type="button" class="btn btn-ghost" id="btn-signature-effacer" style="margin-top:8px;">Effacer la signature</button>
+
     <div id="contrat-generation-status" class="tx-meta" style="margin-top:10px;"></div>
 
     <div style="display:flex; gap:8px; margin-top:18px;">
       <button class="btn btn-secondary" id="btn-contrat-fermer" style="width:auto; flex:1;">Fermer</button>
-      <button class="btn btn-primary" id="btn-contrat-generer" style="width:auto; flex:1;">📄 Générer le Word</button>
+      <button class="btn btn-primary" id="btn-contrat-generer" style="width:auto; flex:1;">📄 Générer</button>
     </div>
   </div>
 </div>
@@ -2888,6 +2892,45 @@ brancherAffichageDate('contrat-datesignature', 'contrat-datesignature-display');
 brancherAffichageHeure('contrat-horaire-debut', 'contrat-horaire-debut-display');
 brancherAffichageHeure('contrat-horaire-fin', 'contrat-horaire-fin-display');
 
+// --- Pavé de signature tactile (canvas), pour l'association ---
+(function initialiserSignaturePad(){
+  const canvas = $('contrat-signature-canvas');
+  const ctx = canvas.getContext('2d');
+  let dessine = false, dernierPoint = null;
+
+  function position(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+  function debut(e) { dessine = true; dernierPoint = position(e); canvas.setPointerCapture(e.pointerId); }
+  function trace(e) {
+    if (!dessine) return;
+    const p = position(e);
+    ctx.strokeStyle = '#15122E'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(dernierPoint.x, dernierPoint.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    dernierPoint = p;
+  }
+  function fin() { dessine = false; }
+  canvas.addEventListener('pointerdown', debut);
+  canvas.addEventListener('pointermove', trace);
+  canvas.addEventListener('pointerup', fin);
+  canvas.addEventListener('pointercancel', fin);
+})();
+
+function effacerSignature() {
+  const canvas = $('contrat-signature-canvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+$('btn-signature-effacer').addEventListener('click', effacerSignature);
+
+function signatureEstVide() {
+  const canvas = $('contrat-signature-canvas');
+  const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < pixels.length; i += 4) { if (pixels[i] !== 0) return false; }
+  return true;
+}
+
 $('btn-client-nouveau-contrat').addEventListener('click', function(){
   const c = state.clients.find(function(x){ return x.id === state.clientModalId; });
   if (!c) return;
@@ -2905,6 +2948,7 @@ $('btn-client-nouveau-contrat').addEventListener('click', function(){
   $('contrat-datesignature').value = todayIso();
   $('contrat-datesignature-display').textContent = formatDateLongue(todayIso());
   $('contrat-generation-status').textContent = '';
+  effacerSignature();
   $('client-modal-backdrop').classList.add('hidden');
   $('contrat-modal-backdrop').classList.remove('hidden');
 });
@@ -3065,6 +3109,9 @@ function genererPdfContrat(c, contrat) {
       doc.setFont('helvetica', 'bold');
       doc.text('L\u2019association,', margeG, y);
       doc.text('L\u2019Organisateur,', margeG + 90, y);
+      if (contrat.signatureDataUrl) {
+        doc.addImage(contrat.signatureDataUrl, 'PNG', margeG, y + 3, 55, 16.5);
+      }
 
       return { blob: doc.output('blob'), nomFichier: 'Contrat_' + contrat.numero + '_' + c.nom.replace(/[\/\\]/g, '-') + '.pdf' };
     });
@@ -3108,6 +3155,9 @@ $('btn-contrat-generer').addEventListener('click', function(){
     dateSignature: dateSignature, creeParUid: state.user.uid, creeParEmail: state.user.email,
     creeLe: firebase.firestore.FieldValue.serverTimestamp()
   };
+  if (!signatureEstVide()) {
+    donneesContrat.signatureDataUrl = $('contrat-signature-canvas').toDataURL('image/png');
+  }
 
   genererNumeroContrat(date.slice(0, 4)).then(function(numeroContrat){
     donneesContrat.numero = numeroContrat;

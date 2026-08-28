@@ -1091,11 +1091,17 @@
     <label class="field-label">Adresse</label>
     <input type="text" id="client-adresse" placeholder="Adresse complète">
 
+    <label class="field-label">Nom du contact</label>
+    <input type="text" id="client-contact" placeholder="Ex. Jean Dupont">
+
     <label class="field-label">Téléphone</label>
-    <input type="text" id="client-telephone" placeholder="06 12 34 56 78">
+    <input type="tel" inputmode="tel" id="client-telephone" placeholder="06 12 34 56 78">
 
     <label class="field-label">Email</label>
     <input type="email" id="client-email" placeholder="contact@exemple.fr">
+
+    <label class="field-label">Numéro SIRET</label>
+    <input type="text" inputmode="numeric" id="client-siret" placeholder="793 475 344 00016">
 
     <label class="field-label">Notes</label>
     <textarea id="client-notes" placeholder="Notes libres…"></textarea>
@@ -2642,7 +2648,7 @@ function renderClients() {
   const recherche = state.clientRecherche.toLowerCase();
   const liste = state.clients.filter(function(c){
     if (!recherche) return true;
-    const cible = [c.nom, c.adresse, c.telephone, c.email, c.notes].join(' ').toLowerCase();
+    const cible = [c.nom, c.adresse, c.contact, c.telephone, c.email, c.siret, c.notes].join(' ').toLowerCase();
     return cible.indexOf(recherche) !== -1;
   });
 
@@ -2654,7 +2660,7 @@ function renderClients() {
     const carte = document.createElement('div');
     carte.className = 'card client-carte';
     carte.dataset.id = c.id;
-    const coordonnees = [c.telephone, c.email].filter(Boolean).join(' · ');
+    const coordonnees = [c.contact, c.telephone, c.email].filter(Boolean).join(' · ');
     carte.innerHTML =
       '<div class="client-carte-entete">' +
         '<div class="client-nom">' + escHtml(c.nom) + '</div>' +
@@ -2678,8 +2684,10 @@ function ouvrirModaleClient(id) {
   $('client-nom').value = c ? c.nom : '';
   $('client-type').value = c ? (c.type || 'mairie') : 'mairie';
   $('client-adresse').value = c ? (c.adresse || '') : '';
+  $('client-contact').value = c ? (c.contact || '') : '';
   $('client-telephone').value = c ? (c.telephone || '') : '';
   $('client-email').value = c ? (c.email || '') : '';
+  $('client-siret').value = c ? (c.siret || '') : '';
   $('client-notes').value = c ? (c.notes || '') : '';
   $('btn-client-supprimer').classList.toggle('hidden', !c);
   $('client-historique-contrats').textContent = 'Aucun contrat pour l\'instant — arrive à la phase suivante du projet.';
@@ -2696,8 +2704,9 @@ $('btn-client-enregistrer').addEventListener('click', function(){
   if (!nom) { toast('Le nom est obligatoire.'); return; }
   const donnees = {
     nom: nom, type: $('client-type').value,
-    adresse: $('client-adresse').value.trim(), telephone: $('client-telephone').value.trim(),
-    email: $('client-email').value.trim(), notes: $('client-notes').value.trim()
+    adresse: $('client-adresse').value.trim(), contact: $('client-contact').value.trim(),
+    telephone: $('client-telephone').value.trim(), email: $('client-email').value.trim(),
+    siret: $('client-siret').value.trim(), notes: $('client-notes').value.trim()
   };
   const btn = $('btn-client-enregistrer');
   btn.disabled = true;

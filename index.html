@@ -357,7 +357,7 @@
     margin: 14px 0 6px;
   }
   label.field-label:first-child { margin-top: 0; }
-  input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="tel"],
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="tel"], input[type="time"],
   input[type="date"], select, textarea {
     width: 100%; padding: 11px 12px; border: 1px solid var(--rule); border-radius: 10px;
     background: var(--paper); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 15px;
@@ -1135,26 +1135,22 @@
 
     <label class="field-label">Horaire</label>
     <div style="display:flex; gap:8px; align-items:center;">
-      <input type="time" id="contrat-horaire-debut">
+      <div class="date-field-wrap" style="flex:1;">
+        <div class="date-display" id="contrat-horaire-debut-display">Choisir…</div>
+        <input type="time" id="contrat-horaire-debut">
+      </div>
       <span class="tx-meta">à</span>
-      <input type="time" id="contrat-horaire-fin">
+      <div class="date-field-wrap" style="flex:1;">
+        <div class="date-display" id="contrat-horaire-fin-display">Choisir…</div>
+        <input type="time" id="contrat-horaire-fin">
+      </div>
     </div>
-
-    <label class="field-label">Effectif musiciens</label>
-    <input type="number" id="contrat-effectif" min="1" value="46">
 
     <label class="field-label">Montant (€)</label>
     <input type="number" id="contrat-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
 
     <label class="field-label">Remboursement frais de transport (€)</label>
     <input type="number" id="contrat-frais-transport" inputmode="decimal" step="0.01" min="0" placeholder="0.00 (laisser vide si aucun)">
-
-    <label class="field-label">Moyen de paiement</label>
-    <select id="contrat-moyen">
-      <option value="cheque">Chèque à l'ordre de « La Banda ESPERANZA »</option>
-      <option value="espece">Espèces</option>
-      <option value="virement">Virement (nous contacter)</option>
-    </select>
 
     <label class="field-label">Date de signature</label>
     <div class="date-field-wrap">
@@ -1310,6 +1306,16 @@ function brancherAffichageDate(inputId, displayId) {
 }
 brancherAffichageDate('form-date', 'form-date-display');
 brancherAffichageDate('modal-date', 'modal-date-display');
+
+// Même principe pour les champs heure : input natif invisible posé sur un
+// bloc d'affichage stylé identique aux autres champs du formulaire.
+function brancherAffichageHeure(inputId, displayId) {
+  const input = $(inputId);
+  const display = $(displayId);
+  function maj() { display.textContent = input.value || 'Choisir…'; }
+  input.addEventListener('change', maj);
+  input.addEventListener('input', maj);
+}
 
 function todayIso() {
   const d = new Date();
@@ -2830,11 +2836,6 @@ $('btn-client-supprimer').addEventListener('click', function(){
    CONTRATS — génération du contrat Word (modèle fidèle à l'original)
    à partir des infos d'un client, avec archivage de l'historique.
    ============================================================ */
-const TEXTE_MOYEN_PAIEMENT = {
-  cheque: 'Chèque à l\u2019ordre de « La Banda ESPERANZA »',
-  espece: 'Espèces',
-  virement: 'Virement (nous contacter)'
-};
 
 function demarrerEcouteContrats() {
   if (unsubContrats) unsubContrats();
@@ -2849,6 +2850,8 @@ function demarrerEcouteContrats() {
 let contratClientCourant = null;
 brancherAffichageDate('contrat-date', 'contrat-date-display');
 brancherAffichageDate('contrat-datesignature', 'contrat-datesignature-display');
+brancherAffichageHeure('contrat-horaire-debut', 'contrat-horaire-debut-display');
+brancherAffichageHeure('contrat-horaire-fin', 'contrat-horaire-fin-display');
 
 $('btn-client-nouveau-contrat').addEventListener('click', function(){
   const c = state.clients.find(function(x){ return x.id === state.clientModalId; });
@@ -2859,11 +2862,11 @@ $('btn-client-nouveau-contrat').addEventListener('click', function(){
   $('contrat-date').value = '';
   $('contrat-date-display').textContent = 'Choisir…';
   $('contrat-horaire-debut').value = '19:00';
+  $('contrat-horaire-debut-display').textContent = '19:00';
   $('contrat-horaire-fin').value = '22:00';
-  $('contrat-effectif').value = 46;
+  $('contrat-horaire-fin-display').textContent = '22:00';
   $('contrat-montant').value = '';
   $('contrat-frais-transport').value = '';
-  $('contrat-moyen').value = 'cheque';
   $('contrat-datesignature').value = todayIso();
   $('contrat-datesignature-display').textContent = formatDateLongue(todayIso());
   $('contrat-generation-status').textContent = '';
@@ -2881,9 +2884,9 @@ let promesseLibDocxtemplater = null;
 function chargerLibDocxtemplater() {
   if (window.docxtemplater && window.PizZip && window.saveAs) return Promise.resolve();
   if (promesseLibDocxtemplater) return promesseLibDocxtemplater;
-  promesseLibDocxtemplater = chargerScript('https://unpkg.com/pizzip/dist/pizzip.js')
-    .then(function(){ return chargerScript('https://unpkg.com/docxtemplater/js/docxtemplater.js'); })
-    .then(function(){ return chargerScript('https://unpkg.com/file-saver/dist/FileSaver.min.js'); })
+  promesseLibDocxtemplater = chargerScript('https://unpkg.com/pizzip@3.2.0/dist/pizzip.js')
+    .then(function(){ return chargerScript('https://unpkg.com/docxtemplater@3.69.0/build/docxtemplater.js'); })
+    .then(function(){ return chargerScript('https://unpkg.com/file-saver@1.3.8/FileSaver.js'); })
     .catch(function(err){ promesseLibDocxtemplater = null; throw err; });
   return promesseLibDocxtemplater;
 }
@@ -2895,10 +2898,8 @@ $('btn-contrat-generer').addEventListener('click', function(){
   const date = $('contrat-date').value;
   const horaireDebut = $('contrat-horaire-debut').value;
   const horaireFin = $('contrat-horaire-fin').value;
-  const effectif = parseInt($('contrat-effectif').value, 10) || 46;
   const montant = parseFloat($('contrat-montant').value);
   const fraisTransport = parseFloat($('contrat-frais-transport').value) || 0;
-  const moyen = $('contrat-moyen').value;
   const dateSignature = $('contrat-datesignature').value;
 
   if (!lieu) { toast('Lieu obligatoire.'); return; }
@@ -2914,8 +2915,8 @@ $('btn-contrat-generer').addEventListener('click', function(){
 
   const donneesContrat = {
     clientId: c.id, clientNom: c.nom, lieu: lieu, date: date,
-    horaireDebut: horaireDebut, horaireFin: horaireFin, effectif: effectif,
-    montant: montant, fraisTransport: fraisTransport, moyenPaiement: moyen,
+    horaireDebut: horaireDebut, horaireFin: horaireFin,
+    montant: montant, fraisTransport: fraisTransport,
     dateSignature: dateSignature, creeParUid: state.user.uid, creeParEmail: state.user.email,
     creeLe: firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -2928,8 +2929,8 @@ $('btn-contrat-generer').addEventListener('click', function(){
       modele.render({
         clientNom: c.nom, clientAdresse: c.adresse || '', clientTelephone: c.telephone || '', clientEmail: c.email || '',
         lieu: lieu, dateContrat: formatDateCourte(date), horaireDebut: horaireDebut, horaireFin: horaireFin,
-        effectif: String(effectif), montant: formatNombreSimple(montant), fraisTransport: formatNombreSimple(fraisTransport),
-        moyenPaiementTexte: TEXTE_MOYEN_PAIEMENT[moyen], dateSignatureTexte: formatDateAvecJour(dateSignature)
+        montant: formatNombreSimple(montant), fraisTransport: formatNombreSimple(fraisTransport),
+        dateSignatureTexte: formatDateAvecJour(dateSignature)
       });
       const blob = modele.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
       const nomFichier = 'Contrat_' + c.nom.replace(/[\/\\]/g, '-') + '_' + date + '.docx';

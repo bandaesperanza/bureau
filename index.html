@@ -566,7 +566,7 @@
     <!-- ---------- Accueil / Tableau de bord ---------- -->
     <section id="view-dashboard" class="view active">
       <button class="card hidden" id="btn-toggle-recurrentes" style="border:1px solid var(--focus); width:100%; text-align:left; cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-        <span>🔁 Récurrentes à valider <span id="recurrentes-compteur"></span></span>
+        <span>📅 Opérations à venir <span id="recurrentes-compteur"></span></span>
         <span id="recurrentes-chevron">▾</span>
       </button>
       <div id="rappel-recurrentes-liste" class="card hidden" style="margin-top:-6px; padding-top:16px;"></div>
@@ -656,7 +656,7 @@
         <button type="button" class="active" id="admin-toggle-utilisateurs">👥 Utilisateurs</button>
         <button type="button" id="admin-toggle-activites">🏷️ Activités</button>
         <button type="button" id="admin-toggle-grandlivre">📒 Livre de compte</button>
-        <button type="button" id="admin-toggle-recurrentes">🔁 Récurrentes</button>
+        <button type="button" id="admin-toggle-recurrentes">📅 À venir</button>
       </div>
 
       <div id="admin-page-utilisateurs">
@@ -717,23 +717,29 @@
       </div>
 
       <div id="admin-page-recurrentes" class="hidden">
-        <div class="section-title">Modèles existants</div>
+        <div class="section-title">Opérations existantes</div>
         <div class="card">
           <div id="recurrentes-liste"></div>
-          <div class="empty-state hidden" id="recurrentes-empty">Aucun modèle pour l'instant.</div>
+          <div class="empty-state hidden" id="recurrentes-empty">Aucune opération à venir pour l'instant.</div>
         </div>
 
-        <div class="section-title">Nouveau modèle</div>
+        <div class="section-title">Nouvelle opération à venir</div>
         <div class="card">
           <div class="tx-meta" style="margin-bottom:10px;">
-            Même montant, même activité/sous-activité, même moyen de paiement,
-            même libellé chaque mois — seule la date change. Une fois créé, le
-            modèle propose un rappel à valider sur l'écran d'Accueil dès que
-            le jour choisi est atteint.
+            Mensuelle : même montant, même activité/sous-activité, même moyen
+            de paiement, même libellé chaque mois — seule la date change.
+            Ponctuelle : une seule fois, à une date précise (ex. un contrat).
+            Dans les deux cas, un rappel apparaît sur l'écran d'Accueil dès
+            que la date est atteinte.
           </div>
           <div class="type-switch">
             <button type="button" class="active depense" data-rtype="depense" id="recswitch-depense">Dépense</button>
             <button type="button" class="recette" data-rtype="recette" id="recswitch-recette">Recette</button>
+          </div>
+          <label class="field-label">Fréquence</label>
+          <div class="type-switch">
+            <button type="button" class="active" data-rfreq="mensuelle" id="recfreq-mensuelle">🔁 Mensuelle</button>
+            <button type="button" data-rfreq="ponctuelle" id="recfreq-ponctuelle">📅 Ponctuelle</button>
           </div>
           <label class="field-label">Montant (€)</label>
           <input type="number" id="rec-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
@@ -745,9 +751,20 @@
           <select id="rec-moyen"><option value="">— Choisir —</option></select>
           <label class="field-label">Libellé</label>
           <input type="text" id="rec-libelle" placeholder="Ex. Loyer local">
-          <label class="field-label">Jour du mois (1 à 28)</label>
-          <input type="number" id="rec-jour" inputmode="numeric" min="1" max="28" placeholder="5">
-          <button class="btn btn-primary" id="btn-recurrente-creer" style="margin-top:12px;">🔁 Créer le modèle</button>
+
+          <div id="rec-champ-jour">
+            <label class="field-label">Jour du mois (1 à 28)</label>
+            <input type="number" id="rec-jour" inputmode="numeric" min="1" max="28" placeholder="5">
+          </div>
+          <div id="rec-champ-date" class="hidden">
+            <label class="field-label">Date</label>
+            <div class="date-field-wrap">
+              <div class="date-display" id="rec-date-display">Choisir…</div>
+              <input type="date" id="rec-date">
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="btn-recurrente-creer" style="margin-top:12px;">＋ Créer l'opération</button>
         </div>
       </div>
     </section>
@@ -2276,30 +2293,58 @@ $('recswitch-recette').addEventListener('click', function(){
   remplirSelectsRecurrente();
 });
 
+let recurrenteFrequenceCourante = 'mensuelle';
+brancherAffichageDate('rec-date', 'rec-date-display');
+$('recfreq-mensuelle').addEventListener('click', function(){
+  recurrenteFrequenceCourante = 'mensuelle';
+  $('recfreq-mensuelle').classList.add('active'); $('recfreq-ponctuelle').classList.remove('active');
+  $('rec-champ-jour').classList.remove('hidden');
+  $('rec-champ-date').classList.add('hidden');
+});
+$('recfreq-ponctuelle').addEventListener('click', function(){
+  recurrenteFrequenceCourante = 'ponctuelle';
+  $('recfreq-ponctuelle').classList.add('active'); $('recfreq-mensuelle').classList.remove('active');
+  $('rec-champ-date').classList.remove('hidden');
+  $('rec-champ-jour').classList.add('hidden');
+  if (!$('rec-date').value) {
+    $('rec-date').value = todayIso();
+    $('rec-date-display').textContent = formatDateLongue(todayIso());
+  }
+});
+
 $('btn-recurrente-creer').addEventListener('click', function(){
   const montant = parseFloat($('rec-montant').value);
   const activite = $('rec-activite').value;
   const sousActivite = $('rec-sousactivite').value;
   const moyenPaiement = $('rec-moyen').value;
   const libelle = $('rec-libelle').value.trim();
-  const jour = parseInt($('rec-jour').value, 10);
 
   if (!montant || montant <= 0) { toast('Montant invalide.'); return; }
   if (!activite) { toast('Choisis une activité.'); return; }
   if (!sousActivite) { toast('Choisis une sous-activité.'); return; }
   if (!moyenPaiement) { toast('Choisis un moyen de paiement.'); return; }
   if (!libelle) { toast('Libellé obligatoire.'); return; }
-  if (!jour || jour < 1 || jour > 28) { toast('Jour du mois entre 1 et 28.'); return; }
+
+  const donnees = {
+    type: recurrenteTypeCourant, montant: montant, activite: activite, sousActivite: sousActivite,
+    moyenPaiement: moyenPaiement, libelle: libelle, frequence: recurrenteFrequenceCourante, actif: true,
+    derniereValidation: null, traite: false, creeParUid: state.user.uid, creeParEmail: state.user.email,
+    creeLe: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  if (recurrenteFrequenceCourante === 'mensuelle') {
+    const jour = parseInt($('rec-jour').value, 10);
+    if (!jour || jour < 1 || jour > 28) { toast('Jour du mois entre 1 et 28.'); return; }
+    donnees.jourDuMois = jour;
+  } else {
+    const date = $('rec-date').value;
+    if (!date) { toast('Choisis une date.'); return; }
+    donnees.date = date;
+  }
 
   const btn = $('btn-recurrente-creer');
   btn.disabled = true;
-  fbDb.collection('recurrentes').add({
-    type: recurrenteTypeCourant, montant: montant, activite: activite, sousActivite: sousActivite,
-    moyenPaiement: moyenPaiement, libelle: libelle, jourDuMois: jour, actif: true,
-    derniereValidation: null, creeParUid: state.user.uid, creeParEmail: state.user.email,
-    creeLe: firebase.firestore.FieldValue.serverTimestamp()
-  }).then(function(){
-    toast('Modèle créé.');
+  fbDb.collection('recurrentes').add(donnees).then(function(){
+    toast('Opération créée.');
     $('rec-montant').value = ''; $('rec-libelle').value = ''; $('rec-jour').value = '';
   }).catch(function(err){
     toast('Erreur : ' + err.message);
@@ -2310,20 +2355,26 @@ function renderRecurrentesListe() {
   const el = $('recurrentes-liste');
   el.innerHTML = '';
   $('recurrentes-empty').classList.toggle('hidden', state.recurrentes.length > 0);
-  state.recurrentes.slice().sort(function(a, b){ return (a.jourDuMois || 0) - (b.jourDuMois || 0); }).forEach(function(r){
+  state.recurrentes.slice().sort(function(a, b){
+    const cleA = a.frequence === 'ponctuelle' ? (a.date || '') : '9999-' + String(a.jourDuMois || 0).padStart(2, '0');
+    const cleB = b.frequence === 'ponctuelle' ? (b.date || '') : '9999-' + String(b.jourDuMois || 0).padStart(2, '0');
+    return cleA < cleB ? -1 : cleA > cleB ? 1 : 0;
+  }).forEach(function(r){
+    const estPonctuelle = r.frequence === 'ponctuelle';
     const actif = r.actif !== false;
     const poussee = r.forcerAffichage === true;
+    const quand = estPonctuelle ? 'Le ' + formatDateShort(r.date) : 'Jour ' + r.jourDuMois + ' de chaque mois';
     const carte = document.createElement('div');
     carte.className = 'recurrente-carte';
     carte.innerHTML =
       '<div style="min-width:0; opacity:' + (actif ? '1' : '0.5') + ';">' +
         '<div style="font-weight:600;">' + escHtml(r.libelle) + (poussee ? ' <span class="tx-meta" style="color:var(--focus);">· poussée sur l\'Accueil</span>' : '') + '</div>' +
-        '<div class="tx-meta">' + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + ' · Jour ' + r.jourDuMois + ' · ' + (r.type === 'recette' ? 'Recette' : 'Dépense') + '</div>' +
+        '<div class="tx-meta">' + (estPonctuelle ? '📅 ' : '🔁 ') + escHtml(r.activite) + ' · ' + escHtml(r.sousActivite) + ' · ' + quand + ' · ' + (r.type === 'recette' ? 'Recette' : 'Dépense') + '</div>' +
       '</div>' +
       '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">' +
         '<span class="tresorerie-tableau-montant" style="opacity:' + (actif ? '1' : '0.5') + ';">' + formatMoney(r.montant) + '</span>' +
-        (actif && !poussee ? '<button class="btn btn-drive" style="width:auto; padding:6px 10px;" data-action="pousser" data-id="' + r.id + '" title="Faire apparaître maintenant sur l\'Accueil, sans attendre le jour prévu">📌</button>' : '') +
-        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="toggle" data-id="' + r.id + '">' + (actif ? '⏸' : '▶') + '</button>' +
+        (actif && !poussee ? '<button class="btn btn-drive" style="width:auto; padding:6px 10px;" data-action="pousser" data-id="' + r.id + '" title="Faire apparaître maintenant sur l\'Accueil, sans attendre la date prévue">📌</button>' : '') +
+        (estPonctuelle ? '' : '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="toggle" data-id="' + r.id + '">' + (actif ? '⏸' : '▶') + '</button>') +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-id="' + r.id + '">🗑</button>' +
       '</div>';
     el.appendChild(carte);
@@ -2338,7 +2389,7 @@ $('recurrentes-liste').addEventListener('click', function(e){
   if (btn.dataset.action === 'toggle') {
     fbDb.collection('recurrentes').doc(id).update({ actif: !(rec.actif !== false) }).catch(function(err){ toast('Erreur : ' + err.message); });
   } else if (btn.dataset.action === 'supprimer') {
-    if (!confirm('Supprimer ce modèle récurrent ? (les transactions déjà créées restent inchangées)')) return;
+    if (!confirm('Supprimer cette opération ? (les transactions déjà créées restent inchangées)')) return;
     fbDb.collection('recurrentes').doc(id).delete().catch(function(err){ toast('Erreur : ' + err.message); });
   } else if (btn.dataset.action === 'pousser') {
     fbDb.collection('recurrentes').doc(id).update({ forcerAffichage: true })
@@ -2348,16 +2399,21 @@ $('recurrentes-liste').addEventListener('click', function(e){
 });
 
 // --- Rappel sur l'écran d'Accueil : jamais de création automatique, juste
-// une proposition à valider en un tap dès que le jour choisi est atteint. ---
+// une proposition à valider en un tap dès que la date/le jour est atteint.
+// Ponctuelle : une fois traitée, ne revient jamais.
+// Mensuelle : se réinitialise chaque mois. ---
 function calculerRecurrentesDues() {
   const moisCourant = todayIso().slice(0, 7);
+  const dateCourante = todayIso();
   const jourCourant = new Date().getDate();
   return state.recurrentes.filter(function(r){
     if (r.actif === false) return false;
-    // Une poussée manuelle (📌 depuis Admin) prend toujours le dessus, même
-    // si le modèle a déjà été traité ce mois-ci — permet de le déclencher
-    // plusieurs fois dans le même mois si besoin.
+    // Une poussée manuelle (📌 depuis Admin) prend toujours le dessus.
     if (r.forcerAffichage === true) return true;
+    if (r.frequence === 'ponctuelle') {
+      if (r.traite) return false;
+      return dateCourante >= (r.date || dateCourante);
+    }
     if (r.derniereValidation === moisCourant) return false;
     return jourCourant >= (r.jourDuMois || 1);
   });
@@ -2398,10 +2454,10 @@ $('btn-toggle-recurrentes').addEventListener('click', function(){
   renderRappelRecurrentes();
 });
 
-// Pousse UNE récurrente à la fois dans l'onglet Saisie, pré-remplie — date
-// comprise, tout reste modifiable avant d'enregistrer normalement. La
-// récurrente n'est marquée "faite ce mois-ci" que lorsque la transaction est
-// réellement enregistrée (voir enregistrerTransaction).
+// Pousse UNE opération à la fois dans l'onglet Saisie, pré-remplie — date
+// comprise, tout reste modifiable avant d'enregistrer normalement. Elle
+// n'est marquée "traitée" que lorsque la transaction est réellement
+// enregistrée (voir enregistrerTransaction).
 function pousserRecurrenteDansSaisie(rec) {
   showView('form'); // remet le formulaire à zéro avant de le pré-remplir
 
@@ -2414,27 +2470,34 @@ function pousserRecurrenteDansSaisie(rec) {
   $('form-montant').value = rec.montant;
   $('form-libelle').value = rec.libelle;
 
-  const moisCourant = todayIso().slice(0, 7);
-  const anneeCourante = moisCourant.slice(0, 4);
-  const moisNumero = parseInt(moisCourant.slice(5, 7), 10);
-  const dernierJourMois = new Date(parseInt(anneeCourante, 10), moisNumero, 0).getDate();
-  const jour = Math.min(rec.jourDuMois || 1, dernierJourMois);
-  const dateVoulue = moisCourant + '-' + String(jour).padStart(2, '0');
+  let dateVoulue;
+  if (rec.frequence === 'ponctuelle') {
+    dateVoulue = rec.date || todayIso();
+  } else {
+    const moisCourant = todayIso().slice(0, 7);
+    const anneeCourante = moisCourant.slice(0, 4);
+    const moisNumero = parseInt(moisCourant.slice(5, 7), 10);
+    const dernierJourMois = new Date(parseInt(anneeCourante, 10), moisNumero, 0).getDate();
+    const jour = Math.min(rec.jourDuMois || 1, dernierJourMois);
+    dateVoulue = moisCourant + '-' + String(jour).padStart(2, '0');
+  }
   // Champ de date natif, entièrement modifiable ensuite (pas de verrouillage).
   $('form-date').value = dateVoulue;
   $('form-date-display').textContent = formatDateLongue(dateVoulue);
   rafraichirNumeroFormulaire();
 
   state.formOrigineRecurrente = rec.id;
-  toast('Modèle "' + rec.libelle + '" chargé — vérifie (dont la date) puis enregistre.');
+  toast('"' + rec.libelle + '" chargée — vérifie (dont la date) puis enregistre.');
 }
 
-// Ignorer : passe le mois sans créer de transaction, retire l'entrée de la
-// liste (le compteur se met à jour tout seul via l'écoute Firestore).
+// Ignorer : passe l'opération sans créer de transaction. Ponctuelle = classée
+// définitivement. Mensuelle = remise en jeu automatiquement le mois suivant.
 function ignorerRecurrente(rec) {
-  const moisCourant = todayIso().slice(0, 7);
-  fbDb.collection('recurrentes').doc(rec.id).update({ derniereValidation: moisCourant, forcerAffichage: false })
-    .then(function(){ toast('"' + rec.libelle + '" ignoré pour ce mois-ci.'); })
+  const maj = { forcerAffichage: false };
+  if (rec.frequence === 'ponctuelle') maj.traite = true;
+  else maj.derniereValidation = todayIso().slice(0, 7);
+  fbDb.collection('recurrentes').doc(rec.id).update(maj)
+    .then(function(){ toast('"' + rec.libelle + '" ignorée.'); })
     .catch(function(err){ toast('Erreur : ' + err.message); });
 }
 
@@ -3299,13 +3362,18 @@ function enregistrerTransaction() {
     toast('Transaction enregistrée.');
     state.formNumero = null;
     state.formNumeroAnnee = null;
-    // Si ce formulaire a été pré-rempli depuis une récurrente, on la marque
-    // comme faite pour ce mois-ci — elle ne réapparaîtra pas dans le rappel.
+    // Si ce formulaire a été pré-rempli depuis une opération à venir, on la
+    // marque comme traitée — ponctuelle : définitivement ; mensuelle : pour
+    // ce mois-ci seulement (revient automatiquement le mois suivant).
     if (state.formOrigineRecurrente) {
       const idRecurrente = state.formOrigineRecurrente;
+      const recOrigine = state.recurrentes.find(function(r){ return r.id === idRecurrente; });
       state.formOrigineRecurrente = null;
-      fbDb.collection('recurrentes').doc(idRecurrente).update({ derniereValidation: todayIso().slice(0, 7), forcerAffichage: false })
-        .catch(function(err){ console.warn('Marquage récurrente échoué :', err); });
+      const maj = { forcerAffichage: false };
+      if (recOrigine && recOrigine.frequence === 'ponctuelle') maj.traite = true;
+      else maj.derniereValidation = todayIso().slice(0, 7);
+      fbDb.collection('recurrentes').doc(idRecurrente).update(maj)
+        .catch(function(err){ console.warn('Marquage opération échoué :', err); });
     }
     showView('dashboard');
   }).catch(function(err){

@@ -1121,7 +1121,7 @@
 <!-- ---------- Modale Contrat (nouveau contrat pour un client) ---------- -->
 <div class="modal-backdrop hidden" id="contrat-modal-backdrop">
   <div class="modal-sheet">
-    <h2 class="modal-title">Nouveau contrat</h2>
+    <h2 class="modal-title" id="contrat-modal-titre">Nouveau contrat</h2>
     <div class="tx-meta" id="contrat-client-nom" style="margin-bottom:14px; font-weight:600; font-size:15px; color:var(--ink);"></div>
 
     <label class="field-label">Lieu de la représentation</label>
@@ -1247,6 +1247,7 @@ const state = {
   clientRecherche: '',
   clientModalId: null,
   contrats: [],
+  contratEditId: null,
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -2800,6 +2801,7 @@ function renderHistoriqueContrats(clientId) {
       '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-word" data-id="' + c.id + '" title="Réimprimer en Word">📄</button>' +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
+        (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="modifier-contrat" data-id="' + c.id + '" title="Modifier">✏️</button>' : '') +
         (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
       '</div>' +
     '</div>';
@@ -2812,9 +2814,12 @@ $('client-historique-contrats').addEventListener('click', function(e){
   if (!contrat) return;
   if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
   else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
+  else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat de l\'historique ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
-    fbDb.collection('contrats').doc(contrat.id).delete().catch(function(err){ toast('Erreur : ' + err.message); });
+    fbDb.collection('contrats').doc(contrat.id).delete()
+      .then(function(){ toast('Contrat supprimé.'); })
+      .catch(function(err){ toast('Erreur : ' + err.message); });
   }
 });
 
@@ -2934,24 +2939,51 @@ function signatureEstVide() {
 $('btn-client-nouveau-contrat').addEventListener('click', function(){
   const c = state.clients.find(function(x){ return x.id === state.clientModalId; });
   if (!c) return;
-  contratClientCourant = c;
-  $('contrat-client-nom').textContent = c.nom;
-  $('contrat-lieu').value = '';
-  $('contrat-date').value = '';
-  $('contrat-date-display').textContent = 'Choisir…';
-  $('contrat-horaire-debut').value = '19:00';
-  $('contrat-horaire-debut-display').textContent = '19:00';
-  $('contrat-horaire-fin').value = '22:00';
-  $('contrat-horaire-fin-display').textContent = '22:00';
-  $('contrat-montant').value = '';
-  $('contrat-frais-transport').value = '';
-  $('contrat-datesignature').value = todayIso();
-  $('contrat-datesignature-display').textContent = formatDateLongue(todayIso());
+  ouvrirModaleContrat(c, null);
+});
+
+// Ouvre le formulaire de contrat, vide (nouveau) ou pré-rempli (édition
+// depuis l'historique). contratExistant = null pour une création.
+function ouvrirModaleContrat(client, contratExistant) {
+  contratClientCourant = client;
+  state.contratEditId = contratExistant ? contratExistant.id : null;
+  $('contrat-client-nom').textContent = client.nom;
+  $('contrat-modal-titre').textContent = contratExistant ? 'Modifier le contrat ' + (contratExistant.numero || '') : 'Nouveau contrat';
+  $('btn-contrat-generer').textContent = contratExistant ? '💾 Enregistrer et régénérer' : '📄 Générer';
+
+  $('contrat-lieu').value = contratExistant ? contratExistant.lieu : '';
+  $('contrat-date').value = contratExistant ? contratExistant.date : '';
+  $('contrat-date-display').textContent = contratExistant ? formatDateLongue(contratExistant.date) : 'Choisir…';
+  $('contrat-horaire-debut').value = contratExistant ? contratExistant.horaireDebut : '19:00';
+  $('contrat-horaire-debut-display').textContent = contratExistant ? contratExistant.horaireDebut : '19:00';
+  $('contrat-horaire-fin').value = contratExistant ? contratExistant.horaireFin : '22:00';
+  $('contrat-horaire-fin-display').textContent = contratExistant ? contratExistant.horaireFin : '22:00';
+  $('contrat-montant').value = contratExistant ? contratExistant.montant : '';
+  $('contrat-frais-transport').value = contratExistant ? (contratExistant.fraisTransport || '') : '';
+  const dateSign = contratExistant ? (contratExistant.dateSignature || todayIso()) : todayIso();
+  $('contrat-datesignature').value = dateSign;
+  $('contrat-datesignature-display').textContent = formatDateLongue(dateSign);
   $('contrat-generation-status').textContent = '';
+
   effacerSignature();
+  if (contratExistant && contratExistant.signatureDataUrl) {
+    const img = new Image();
+    img.onload = function(){
+      $('contrat-signature-canvas').getContext('2d').drawImage(img, 0, 0, 500, 150);
+    };
+    img.src = contratExistant.signatureDataUrl;
+  }
+
   $('client-modal-backdrop').classList.add('hidden');
   $('contrat-modal-backdrop').classList.remove('hidden');
-});
+}
+
+function ouvrirModaleContratEdition(contrat) {
+  const c = state.clients.find(function(x){ return x.id === contrat.clientId; });
+  if (!c) { toast('Client introuvable.'); return; }
+  ouvrirModaleContrat(c, contrat);
+}
+
 $('btn-contrat-fermer').addEventListener('click', function(){ $('contrat-modal-backdrop').classList.add('hidden'); });
 $('contrat-modal-backdrop').addEventListener('click', function(e){
   if (e.target === this) this.classList.add('hidden');
@@ -3136,6 +3168,7 @@ $('btn-contrat-generer').addEventListener('click', function(){
   const montant = parseFloat($('contrat-montant').value);
   const fraisTransport = parseFloat($('contrat-frais-transport').value) || 0;
   const dateSignature = $('contrat-datesignature').value;
+  const idEnEdition = state.contratEditId;
 
   if (!lieu) { toast('Lieu obligatoire.'); return; }
   if (!date) { toast('Date de la représentation obligatoire.'); return; }
@@ -3159,16 +3192,24 @@ $('btn-contrat-generer').addEventListener('click', function(){
     donneesContrat.signatureDataUrl = $('contrat-signature-canvas').toDataURL('image/png');
   }
 
-  genererNumeroContrat(date.slice(0, 4)).then(function(numeroContrat){
+  // Édition : on garde le numéro déjà attribué, pas de nouveau compteur.
+  const promesseNumero = idEnEdition
+    ? Promise.resolve(state.contrats.find(function(x){ return x.id === idEnEdition; }).numero)
+    : genererNumeroContrat(date.slice(0, 4));
+
+  promesseNumero.then(function(numeroContrat){
     donneesContrat.numero = numeroContrat;
     return Promise.all([genererDocxContrat(c, donneesContrat), genererPdfContrat(c, donneesContrat)]);
   }).then(function(res){
     window.saveAs(res[0].blob, res[0].nomFichier);
     window.saveAs(res[1].blob, res[1].nomFichier);
     statusEl.textContent = 'Contrat ' + donneesContrat.numero + ' généré (Word + PDF).';
-    return fbDb.collection('contrats').add(donneesContrat);
+    return idEnEdition
+      ? fbDb.collection('contrats').doc(idEnEdition).update(donneesContrat)
+      : fbDb.collection('contrats').add(donneesContrat);
   }).then(function(){
-    toast('Contrat créé et téléchargé.');
+    toast(idEnEdition ? 'Contrat modifié et régénéré.' : 'Contrat créé et téléchargé.');
+    state.contratEditId = null;
     renderHistoriqueContrats(c.id);
     $('contrat-modal-backdrop').classList.add('hidden');
   }).catch(function(err){

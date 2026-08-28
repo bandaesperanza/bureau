@@ -3305,11 +3305,10 @@ $('btn-contrat-generer').addEventListener('click', function(){
 
   promesseNumero.then(function(numeroContrat){
     donneesContrat.numero = numeroContrat;
-    return Promise.all([genererDocxContrat(c, donneesContrat), genererPdfContrat(c, donneesContrat)]);
+    return genererPdfContrat(c, donneesContrat);
   }).then(function(res){
-    window.saveAs(res[0].blob, res[0].nomFichier);
-    window.saveAs(res[1].blob, res[1].nomFichier);
-    statusEl.textContent = 'Contrat ' + donneesContrat.numero + ' généré (Word + PDF).';
+    window.saveAs(res.blob, res.nomFichier);
+    statusEl.textContent = 'Contrat ' + donneesContrat.numero + ' généré (PDF).';
     return idEnEdition
       ? fbDb.collection('contrats').doc(idEnEdition).update(donneesContrat)
       : fbDb.collection('contrats').add(donneesContrat);

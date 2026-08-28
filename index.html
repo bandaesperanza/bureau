@@ -309,6 +309,18 @@
   }
   .recurrente-carte:last-child { border-bottom: none; }
 
+  /* Clients */
+  .client-carte {
+    padding: 14px; margin-bottom: 10px; cursor: pointer;
+  }
+  .client-carte-entete { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .client-nom { font-weight: 600; font-size: 15px; }
+  .badge-type-client {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    background: var(--paper); color: var(--ink-soft); border: 1px solid var(--rule); white-space: nowrap; flex-shrink: 0;
+  }
+  .client-coordonnees { margin-top: 4px; }
+
   /* Conteneur à hauteur FIXE pour les graphiques : Chart.js est "responsive"
      par défaut et grandit en hauteur en même temps qu'en largeur (ratio
      conservé), ce qui donne des graphiques énormes sur grand écran. En
@@ -931,6 +943,16 @@
       </div>
     </section>
 
+    <!-- ---------- Clients (base contacts, module Contrats) ---------- -->
+    <section id="view-clients" class="view">
+      <div class="card">
+        <input type="text" id="client-recherche" placeholder="Rechercher un client (nom, ville, contact…)">
+      </div>
+      <button class="btn btn-primary" id="btn-nouveau-client" style="margin-bottom:14px;">＋ Nouveau client</button>
+      <div id="clients-liste"></div>
+      <div class="empty-state hidden" id="clients-empty">Aucun client pour l'instant.</div>
+    </section>
+
     <!-- ---------- Banque (comptes bancaires + transferts) ---------- -->
     <section id="view-comptes" class="view">
       <div class="card balance-card">
@@ -989,6 +1011,7 @@
     <button class="tab-btn" data-view="form"><span class="tab-icon">＋</span>Saisie</button>
     <button class="tab-btn" data-view="bilan"><span class="tab-icon">📊</span>Bilan</button>
     <button class="tab-btn" data-view="comptes"><span class="tab-icon">🏦</span>Banque</button>
+    <button class="tab-btn" data-view="clients"><span class="tab-icon">👤</span>Clients</button>
     <button class="tab-btn hidden" data-view="users" id="tab-users"><span class="tab-icon">⚙️</span>Admin</button>
   </nav>
 </div>
@@ -1045,6 +1068,45 @@
       <button class="btn btn-secondary" id="btn-modal-close" style="width:auto; flex:1;">Fermer</button>
       <button class="btn btn-ghost hidden" id="btn-modal-delete" style="width:auto; flex:1; color:var(--stamp); border-color:var(--stamp);">Supprimer</button>
       <button class="btn btn-primary hidden" id="btn-modal-save" style="width:auto; flex:1;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Modale Client (ajout / édition) ---------- -->
+<div class="modal-backdrop hidden" id="client-modal-backdrop">
+  <div class="modal-sheet">
+    <h2 class="modal-title" id="client-modal-titre">Nouveau client</h2>
+
+    <label class="field-label">Nom</label>
+    <input type="text" id="client-nom" placeholder="Ex. Mairie de Saint-Geours-de-Maremne">
+
+    <label class="field-label">Type</label>
+    <select id="client-type">
+      <option value="mairie">Mairie</option>
+      <option value="comite">Comité des fêtes</option>
+      <option value="entreprise">Entreprise</option>
+      <option value="autre">Autre</option>
+    </select>
+
+    <label class="field-label">Adresse</label>
+    <input type="text" id="client-adresse" placeholder="Adresse complète">
+
+    <label class="field-label">Téléphone</label>
+    <input type="text" id="client-telephone" placeholder="06 12 34 56 78">
+
+    <label class="field-label">Email</label>
+    <input type="email" id="client-email" placeholder="contact@exemple.fr">
+
+    <label class="field-label">Notes</label>
+    <textarea id="client-notes" placeholder="Notes libres…"></textarea>
+
+    <div class="section-title" style="margin-top:16px;">Historique des contrats</div>
+    <div id="client-historique-contrats" class="tx-meta">Aucun contrat pour l'instant — arrive à la phase suivante du projet.</div>
+
+    <div style="display:flex; gap:8px; margin-top:18px;">
+      <button class="btn btn-secondary" id="btn-client-fermer" style="width:auto; flex:1;">Fermer</button>
+      <button class="btn btn-ghost hidden" id="btn-client-supprimer" style="width:auto; flex:1; color:var(--stamp); border-color:var(--stamp);">Supprimer</button>
+      <button class="btn btn-primary" id="btn-client-enregistrer" style="width:auto; flex:1;">Enregistrer</button>
     </div>
   </div>
 </div>
@@ -1121,6 +1183,9 @@ const state = {
   comptesBancaires: { livretA: 0, livretSocietaire: 0, compteTitre: 0, soldeInitialCompteCourant: {} },
   transferts: [],
   recurrentes: [],
+  clients: [],
+  clientRecherche: '',
+  clientModalId: null,
   formType: 'depense',
   formNumero: null,
   formNumeroAnnee: null,
@@ -1135,7 +1200,7 @@ const state = {
 };
 state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
-let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null;
+let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null, unsubClients = null;
 
 /* ============================================================
    UTILITAIRES
@@ -1208,6 +1273,7 @@ function showView(name) {
   if (name === 'form') resetForm();
   if (name === 'bilan') afficherSousVueBilan(state.bilanSousVue);
   if (name === 'comptes') renderComptes();
+  if (name === 'clients') renderClients();
   if (name === 'users') afficherPageAdmin(state.adminPage);
 }
 
@@ -1402,6 +1468,7 @@ fbAuth.onAuthStateChanged(function(user){
   if (unsubComptes) { unsubComptes(); unsubComptes = null; }
   if (unsubTransferts) { unsubTransferts(); unsubTransferts = null; }
   if (unsubRecurrentes) { unsubRecurrentes(); unsubRecurrentes = null; }
+  if (unsubClients) { unsubClients(); unsubClients = null; }
 
   if (!user) {
     state.user = null; state.role = null;
@@ -1444,6 +1511,7 @@ fbAuth.onAuthStateChanged(function(user){
       demarrerEcouteComptesBancaires();
       demarrerEcouteTransferts();
       demarrerEcouteRecurrentes();
+      demarrerEcouteClients();
       remplirSelectsActivite();
       remplirSelectsRecurrente();
       if (isAdmin) {
@@ -2553,6 +2621,107 @@ $('rappel-recurrentes-liste').addEventListener('click', function(e){
   if (!rec) return;
   if (btn.dataset.action === 'ajouter') pousserRecurrenteDansSaisie(rec);
   else if (btn.dataset.action === 'ignorer') ignorerRecurrente(rec);
+});
+
+
+/* ============================================================
+   CLIENTS — base contacts (mairies, comités, entreprises…), premier
+   morceau du futur module Contrats.
+   ============================================================ */
+const TYPES_CLIENT = { mairie: 'Mairie', comite: 'Comité des fêtes', entreprise: 'Entreprise', autre: 'Autre' };
+
+function demarrerEcouteClients() {
+  if (unsubClients) unsubClients();
+  unsubClients = fbDb.collection('clients').orderBy('nom').onSnapshot(function(snap){
+    state.clients = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+    if (document.getElementById('view-clients').classList.contains('active')) renderClients();
+  }, function(err){ console.error('Ecoute clients :', err); });
+}
+
+function renderClients() {
+  const recherche = state.clientRecherche.toLowerCase();
+  const liste = state.clients.filter(function(c){
+    if (!recherche) return true;
+    const cible = [c.nom, c.adresse, c.telephone, c.email, c.notes].join(' ').toLowerCase();
+    return cible.indexOf(recherche) !== -1;
+  });
+
+  const el = $('clients-liste');
+  el.innerHTML = '';
+  $('clients-empty').classList.toggle('hidden', liste.length > 0);
+
+  liste.forEach(function(c){
+    const carte = document.createElement('div');
+    carte.className = 'card client-carte';
+    carte.dataset.id = c.id;
+    const coordonnees = [c.telephone, c.email].filter(Boolean).join(' · ');
+    carte.innerHTML =
+      '<div class="client-carte-entete">' +
+        '<div class="client-nom">' + escHtml(c.nom) + '</div>' +
+        '<span class="badge-type-client">' + escHtml(TYPES_CLIENT[c.type] || 'Autre') + '</span>' +
+      '</div>' +
+      (c.adresse ? '<div class="tx-meta client-coordonnees">' + escHtml(c.adresse) + '</div>' : '') +
+      (coordonnees ? '<div class="tx-meta">' + escHtml(coordonnees) + '</div>' : '');
+    carte.addEventListener('click', function(){ ouvrirModaleClient(c.id); });
+    el.appendChild(carte);
+  });
+}
+$('client-recherche').addEventListener('input', function(){
+  state.clientRecherche = this.value.trim();
+  renderClients();
+});
+
+function ouvrirModaleClient(id) {
+  state.clientModalId = id || null;
+  const c = id ? state.clients.find(function(x){ return x.id === id; }) : null;
+  $('client-modal-titre').textContent = c ? 'Modifier le client' : 'Nouveau client';
+  $('client-nom').value = c ? c.nom : '';
+  $('client-type').value = c ? (c.type || 'mairie') : 'mairie';
+  $('client-adresse').value = c ? (c.adresse || '') : '';
+  $('client-telephone').value = c ? (c.telephone || '') : '';
+  $('client-email').value = c ? (c.email || '') : '';
+  $('client-notes').value = c ? (c.notes || '') : '';
+  $('btn-client-supprimer').classList.toggle('hidden', !c);
+  $('client-historique-contrats').textContent = 'Aucun contrat pour l\'instant — arrive à la phase suivante du projet.';
+  $('client-modal-backdrop').classList.remove('hidden');
+}
+$('btn-nouveau-client').addEventListener('click', function(){ ouvrirModaleClient(null); });
+$('btn-client-fermer').addEventListener('click', function(){ $('client-modal-backdrop').classList.add('hidden'); });
+$('client-modal-backdrop').addEventListener('click', function(e){
+  if (e.target === this) this.classList.add('hidden');
+});
+
+$('btn-client-enregistrer').addEventListener('click', function(){
+  const nom = $('client-nom').value.trim();
+  if (!nom) { toast('Le nom est obligatoire.'); return; }
+  const donnees = {
+    nom: nom, type: $('client-type').value,
+    adresse: $('client-adresse').value.trim(), telephone: $('client-telephone').value.trim(),
+    email: $('client-email').value.trim(), notes: $('client-notes').value.trim()
+  };
+  const btn = $('btn-client-enregistrer');
+  btn.disabled = true;
+  const promesse = state.clientModalId
+    ? fbDb.collection('clients').doc(state.clientModalId).update(donnees)
+    : fbDb.collection('clients').add(Object.assign({}, donnees, {
+        creeParUid: state.user.uid, creeParEmail: state.user.email,
+        creeLe: firebase.firestore.FieldValue.serverTimestamp()
+      }));
+  promesse.then(function(){
+    toast('Client enregistré.');
+    $('client-modal-backdrop').classList.add('hidden');
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  }).then(function(){ btn.disabled = false; });
+});
+
+$('btn-client-supprimer').addEventListener('click', function(){
+  if (!state.clientModalId) return;
+  if (!confirm('Supprimer ce client ?')) return;
+  fbDb.collection('clients').doc(state.clientModalId).delete().then(function(){
+    toast('Client supprimé.');
+    $('client-modal-backdrop').classList.add('hidden');
+  }).catch(function(err){ toast('Erreur : ' + err.message); });
 });
 
 

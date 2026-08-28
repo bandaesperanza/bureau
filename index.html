@@ -357,7 +357,7 @@
     margin: 14px 0 6px;
   }
   label.field-label:first-child { margin-top: 0; }
-  input[type="text"], input[type="email"], input[type="password"], input[type="number"],
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="tel"],
   input[type="date"], select, textarea {
     width: 100%; padding: 11px 12px; border: 1px solid var(--rule); border-radius: 10px;
     background: var(--paper); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 15px;
@@ -2687,13 +2687,20 @@ function ouvrirModaleClient(id) {
   $('client-contact').value = c ? (c.contact || '') : '';
   $('client-telephone').value = c ? (c.telephone || '') : '';
   $('client-email').value = c ? (c.email || '') : '';
-  $('client-siret').value = c ? (c.siret || '') : '';
+  $('client-siret').value = c ? formaterSiret(c.siret || '') : '';
   $('client-notes').value = c ? (c.notes || '') : '';
   $('btn-client-supprimer').classList.toggle('hidden', !c);
   $('client-historique-contrats').textContent = 'Aucun contrat pour l\'instant — arrive à la phase suivante du projet.';
   $('client-modal-backdrop').classList.remove('hidden');
 }
 $('btn-nouveau-client').addEventListener('click', function(){ ouvrirModaleClient(null); });
+
+// Espace un SIRET en groupes 3-3-3-5 (format français standard).
+function formaterSiret(valeur) {
+  const chiffres = String(valeur).replace(/\D/g, '').slice(0, 14);
+  return [chiffres.slice(0, 3), chiffres.slice(3, 6), chiffres.slice(6, 9), chiffres.slice(9, 14)].filter(Boolean).join(' ');
+}
+$('client-siret').addEventListener('input', function(){ this.value = formaterSiret(this.value); });
 $('btn-client-fermer').addEventListener('click', function(){ $('client-modal-backdrop').classList.add('hidden'); });
 $('client-modal-backdrop').addEventListener('click', function(e){
   if (e.target === this) this.classList.add('hidden');

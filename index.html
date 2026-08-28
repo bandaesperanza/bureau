@@ -2822,6 +2822,24 @@ function renderHistoriqueContrats(clientId) {
   if (liste.length === 0) { el.innerHTML = '<div class="tx-meta">Aucun contrat pour l\'instant.</div>'; return; }
   liste.forEach(function(c){ el.appendChild(construireLigneContrat(c, false)); });
 }
+
+// Supprime le contrat sur Firestore ET le retire tout de suite de l'affichage
+// local, sans attendre l'aller-retour de l'écoute onSnapshot — évite l'effet
+// "ça n'a pas marché" alors que la suppression a bien été prise en compte
+// côté serveur, juste avec un peu de latence sur le retour.
+function supprimerContratAvecRafraichissementImmediat(contrat) {
+  fbDb.collection('contrats').doc(contrat.id).delete()
+    .then(function(){
+      toast('Contrat supprimé.');
+      state.contrats = state.contrats.filter(function(c){ return c.id !== contrat.id; });
+      if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
+      if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
+        renderHistoriqueContrats(state.clientModalId);
+      }
+    })
+    .catch(function(err){ toast('Erreur : ' + err.message); });
+}
+
 $('client-historique-contrats').addEventListener('click', function(e){
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -2832,9 +2850,7 @@ $('client-historique-contrats').addEventListener('click', function(e){
   else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat de l\'historique ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
-    fbDb.collection('contrats').doc(contrat.id).delete()
-      .then(function(){ toast('Contrat supprimé.'); })
-      .catch(function(err){ toast('Erreur : ' + err.message); });
+    supprimerContratAvecRafraichissementImmediat(contrat);
   }
 });
 
@@ -2991,9 +3007,7 @@ $('contrats-liste-contenu').addEventListener('click', function(e){
   else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
-    fbDb.collection('contrats').doc(contrat.id).delete()
-      .then(function(){ toast('Contrat supprimé.'); })
-      .catch(function(err){ toast('Erreur : ' + err.message); });
+    supprimerContratAvecRafraichissementImmediat(contrat);
   }
 });
 

@@ -2827,6 +2827,20 @@ function renderHistoriqueContrats(clientId) {
 // (bug connu du SDK avec la persistance hors-ligne activée : ni succès ni
 // erreur ne remontent). On retente automatiquement si ça traîne trop,
 // plutôt que de laisser l'utilisateur relancer l'action à la main.
+// Certaines erreurs Firestore ("The client has already been terminated")
+// signifient que la connexion elle-même est cassée côté navigateur — aucune
+// nouvelle tentative ne peut aboutir, seul un rechargement complet répare
+// la situation. On le fait automatiquement plutôt que de laisser l'app
+// bloquée avec une erreur cryptique à chaque action suivante.
+function gererErreurClientFirestoreTermine(err) {
+  if (err && err.message && err.message.indexOf('already been terminated') !== -1) {
+    toast('Connexion perdue, rechargement de l\'application…');
+    setTimeout(function(){ location.reload(); }, 1200);
+    return true;
+  }
+  return false;
+}
+
 function firestoreAvecRetentative(operation, tentativesRestantes, delaiMs) {
   tentativesRestantes = tentativesRestantes === undefined ? 2 : tentativesRestantes;
   delaiMs = delaiMs || 4000;
@@ -2871,6 +2885,7 @@ function supprimerContratAvecRafraichissementImmediat(contrat) {
 
   firestoreAvecRetentative(function(){ return fbDb.collection('contrats').doc(contrat.id).delete(); })
     .catch(function(err){
+      if (gererErreurClientFirestoreTermine(err)) return;
       toast('Erreur, le contrat n\'a pas pu être supprimé : ' + err.message);
       state.contrats.push(contrat);
       if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();

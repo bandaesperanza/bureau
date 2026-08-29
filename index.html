@@ -2927,6 +2927,7 @@ $('client-historique-contrats').addEventListener('click', function(e){
   if (!contrat) return;
   if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
   else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
+  else if (btn.dataset.action === 'facturer-contrat') facturerContrat(contrat);
   else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat de l\'historique ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
@@ -3008,18 +3009,22 @@ function demarrerEcouteContrats() {
 function construireLigneContrat(c, avecNomClient) {
   const carte = document.createElement('div');
   carte.className = avecNomClient ? 'card contrat-carte' : 'contrat-carte contrat-carte-sansfond';
+  const dejaFacture = !!c.factureLe;
   carte.innerHTML =
     '<div class="contrat-entete-ligne">' +
       '<div class="contrat-nom-client">' + (avecNomClient ? escHtml(c.clientNom || '') : '') + '</div>' +
       (c.numero ? '<span class="badge-type-client">N° ' + escHtml(c.numero) + '</span>' : '') +
     '</div>' +
-    '<div class="tx-meta">' + (c.intitule ? escHtml(c.intitule) + ' · ' : '') + formatDateShort(c.date) + (c.lieu ? ' · ' + escHtml(c.lieu) : '') + '</div>' +
+    '<div class="tx-meta">' + (c.intitule ? escHtml(c.intitule) + ' · ' : '') + formatDateShort(c.date) + (c.lieu ? ' · ' + escHtml(c.lieu) : '') +
+      (dejaFacture ? ' · <span style="color:var(--green, #2E7D4E);">🧾 Facturé</span>' : '') +
+    '</div>' +
     '<div class="contrat-ligne-bas">' +
       '<span class="tresorerie-tableau-montant">' + formatMoney(c.montant) + '</span>' +
       '<div style="display:flex; align-items:center; gap:6px;">' +
         /* Bouton "Réimprimer en Word" masqué pour l'instant (fonction gardée
            intacte, reimprimerContrat(contrat, 'word') reste utilisable si on
            décide de le remettre) — data-action="reimprimer-word" toujours géré. */
+        (!dejaFacture && state.role === 'admin' ? '<button class="btn btn-drive" style="width:auto; padding:6px 9px;" data-action="facturer-contrat" data-id="' + c.id + '" title="Générer la facture et l\'ajouter aux opérations à venir">🧾</button>' : '') +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
         (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="modifier-contrat" data-id="' + c.id + '" title="Modifier">✏️</button>' : '') +
         (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
@@ -3087,6 +3092,7 @@ $('contrats-liste-contenu').addEventListener('click', function(e){
   if (!contrat) return;
   if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
   else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
+  else if (btn.dataset.action === 'facturer-contrat') facturerContrat(contrat);
   else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
@@ -3444,6 +3450,47 @@ function reimprimerContrat(contrat, format) {
   promesse.then(function(res){
     window.saveAs(res.blob, res.nomFichier);
   }).catch(function(err){
+    toast('Erreur : ' + err.message);
+  });
+}
+
+// "Facturer" : génère le PDF (même modèle que le contrat) ET, seulement à
+// ce moment précis, ajoute la recette correspondante dans les Opérations à
+// venir de la Trésorerie (une opération ponctuelle, à valider comme les
+// autres depuis l'Accueil une fois l'argent réellement reçu). Un contrat
+// ne peut être facturé qu'une seule fois (le bouton disparaît ensuite).
+function facturerContrat(contrat) {
+  if (contrat.factureLe) { toast('Ce contrat est déjà facturé.'); return; }
+  const c = state.clients.find(function(x){ return x.id === contrat.clientId; });
+  if (!c) { toast('Client introuvable.'); return; }
+  toast('Génération de la facture…');
+
+  genererPdfContrat(c, contrat).then(function(res){
+    window.saveAs(res.blob, res.nomFichier);
+    const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
+    return fbDb.collection('recurrentes').add({
+      type: 'recette', frequence: 'ponctuelle', date: contrat.date,
+      montant: total, activite: 'Contrats', sousActivite: contrat.intitule || c.nom,
+      moyenPaiement: 'Virement',
+      libelle: 'Contrat ' + contrat.numero + ' - ' + c.nom,
+      actif: true, forcerAffichage: false, traite: false, derniereValidation: null,
+      contratId: contrat.id,
+      creeParUid: state.user.uid, creeParEmail: state.user.email,
+      creeLe: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }).then(function(){
+    return firestoreAvecRetentative(function(){
+      return fbDb.collection('contrats').doc(contrat.id).update({ factureLe: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+  }).then(function(){
+    toast('Facture générée et ajoutée aux opérations à venir.');
+    contrat.factureLe = true; // reflet local immédiat, en attendant l'écoute Firestore
+    if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
+    if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
+      renderHistoriqueContrats(state.clientModalId);
+    }
+  }).catch(function(err){
+    if (gererErreurClientFirestoreTermine(err)) return;
     toast('Erreur : ' + err.message);
   });
 }

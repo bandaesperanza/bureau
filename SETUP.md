@@ -54,6 +54,14 @@ service cloud.firestore {
       allow read, write: if estActif();
     }
 
+    match /compteursContrats/{annee} {
+      allow read, write: if estActif();
+    }
+
+    match /compteursFactures/{annee} {
+      allow read, write: if estActif();
+    }
+
     match /transferts/{id} {
       allow read: if estActif();
       allow create: if estActif() && request.resource.data.creeParUid == request.auth.uid;

@@ -1703,6 +1703,22 @@ function genererNumeroContrat(annee) {
   });
 }
 
+// Numérotation des factures : compteur séparé de celui des contrats (une
+// facture n'a pas forcément le même numéro que le contrat dont elle découle).
+function genererNumeroFacture(annee) {
+  const ref = fbDb.collection('compteursFactures').doc(String(annee));
+  return fbDb.runTransaction(function(transaction){
+    return transaction.get(ref).then(function(doc){
+      const dernier = (doc.exists && doc.data().dernier) ? doc.data().dernier : 0;
+      const nouveau = dernier + 1;
+      transaction.set(ref, { dernier: nouveau });
+      return nouveau;
+    });
+  }).then(function(nouveau){
+    return String(annee) + '-' + String(nouveau).padStart(3, '0');
+  });
+}
+
 // Sous-activités par défaut, extraites de l'onglet "Bilan Annuel" du fichier
 // Suivi_compte_2025.xlsm (colonne C pour les dépenses, colonne I pour les
 // recettes). Injectées uniquement pour une activité qui n'a encore aucune
@@ -2928,6 +2944,7 @@ $('client-historique-contrats').addEventListener('click', function(e){
   if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
   else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
   else if (btn.dataset.action === 'facturer-contrat') facturerContrat(contrat);
+  else if (btn.dataset.action === 'reimprimer-facture') reimprimerFacture(contrat);
   else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat de l\'historique ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
@@ -3016,7 +3033,7 @@ function construireLigneContrat(c, avecNomClient) {
       (c.numero ? '<span class="badge-type-client">N° ' + escHtml(c.numero) + '</span>' : '') +
     '</div>' +
     '<div class="tx-meta">' + (c.intitule ? escHtml(c.intitule) + ' · ' : '') + formatDateShort(c.date) + (c.lieu ? ' · ' + escHtml(c.lieu) : '') +
-      (dejaFacture ? ' · <span style="color:var(--green, #2E7D4E);">🧾 Facturé</span>' : '') +
+      (dejaFacture ? ' · <span style="color:var(--green, #2E7D4E);">🧾 Facturé N° ' + escHtml(c.numeroFacture || '') + '</span>' : '') +
     '</div>' +
     '<div class="contrat-ligne-bas">' +
       '<span class="tresorerie-tableau-montant">' + formatMoney(c.montant) + '</span>' +
@@ -3025,6 +3042,7 @@ function construireLigneContrat(c, avecNomClient) {
            intacte, reimprimerContrat(contrat, 'word') reste utilisable si on
            décide de le remettre) — data-action="reimprimer-word" toujours géré. */
         (!dejaFacture && state.role === 'admin' ? '<button class="btn btn-drive" style="width:auto; padding:6px 9px;" data-action="facturer-contrat" data-id="' + c.id + '" title="Générer la facture et l\'ajouter aux opérations à venir">🧾</button>' : '') +
+        (dejaFacture ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-facture" data-id="' + c.id + '" title="Réimprimer la facture">🧾</button>' : '') +
         '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="reimprimer-pdf" data-id="' + c.id + '" title="Réimprimer en PDF">🖨️</button>' +
         (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px;" data-action="modifier-contrat" data-id="' + c.id + '" title="Modifier">✏️</button>' : '') +
         (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer-contrat" data-id="' + c.id + '">🗑</button>' : '') +
@@ -3093,6 +3111,7 @@ $('contrats-liste-contenu').addEventListener('click', function(e){
   if (btn.dataset.action === 'reimprimer-word') reimprimerContrat(contrat, 'word');
   else if (btn.dataset.action === 'reimprimer-pdf') reimprimerContrat(contrat, 'pdf');
   else if (btn.dataset.action === 'facturer-contrat') facturerContrat(contrat);
+  else if (btn.dataset.action === 'reimprimer-facture') reimprimerFacture(contrat);
   else if (btn.dataset.action === 'modifier-contrat') ouvrirModaleContratEdition(contrat);
   else if (btn.dataset.action === 'supprimer-contrat') {
     if (!confirm('Supprimer ce contrat ? (les fichiers déjà téléchargés ne sont pas affectés)')) return;
@@ -3383,6 +3402,106 @@ function blobToDataURL(blob) {
   });
 }
 
+// Coordonnées bancaires fixes de l'association (mêmes pour toutes les
+// factures — à ajuster ici si jamais le RIB change).
+const RIB_ASSOCIATION = { titulaire: 'RIB CA AQUITAINE', iban: 'FR76 1330 6009 8806 3259 2000 030', bic: 'AGRIFRPP833' };
+
+// Génère la VRAIE facture (différente du contrat : tableau désignation/prix,
+// conditions de règlement, RIB) — modèle fidèle à MODELE_Factures_PC.docx.
+function genererPdfFacture(c, contrat, numeroFacture) {
+  return Promise.all([chargerLibPDF(), chargerLibFileSaver(), fetch('./logo-header.png').then(function(r){ return r.blob(); }).then(blobToDataURL)])
+    .then(function(res){
+      const logoDataUrl = res[2];
+      const doc = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      const margeG = 18, margeD = 192;
+      let y = 16;
+      const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
+
+      doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
+      doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
+      doc.rect(margeG + 24, y, margeD - margeG - 24, 20);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text('Banda ESPERANZA', margeG + 27, y + 5.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      [
+        '40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse',
+        'Tél. : 06.03.75.45.50 (Charlotte) \u2013 06.28.28.66.63 (Louanne)',
+        'contact@banda-esperanza.com'
+      ].forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 10 + i * 3.4); });
+      y += 34;
+
+      doc.setFillColor(237, 235, 245);
+      doc.rect(margeG + 40, y, 90, 10, 'FD');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text('FACTURE N\u00b0 ' + numeroFacture, margeG + 85, y + 6.5, { align: 'center' });
+      y += 20;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text(c.nom, margeG, y); y += 5.5;
+      if (c.contact) { doc.setFont('helvetica', 'italic'); doc.text(c.contact, margeG, y); y += 5.5; }
+      doc.setFont('helvetica', 'normal');
+      function ligneLabel(label, valeur) {
+        doc.text(label + ' : ', margeG, y);
+        doc.setFont('helvetica', 'bold');
+        doc.text(valeur || '', margeG + doc.getTextWidth(label + ' : '), y);
+        doc.setFont('helvetica', 'normal');
+        y += 5.5;
+      }
+      ligneLabel('Adresse', c.adresse);
+      ligneLabel('Tel', c.telephone);
+      ligneLabel('Email', c.email);
+      y += 6;
+
+      doc.autoTable({
+        startY: y,
+        margin: { left: margeG, right: 210 - margeD },
+        head: [['DESIGNATION', 'PRIX']],
+        body: [
+          [contrat.intitule || 'Animation selon contrat', formatNombreSimple(contrat.montant) + '\u20ac'],
+          ['Transport selon contrat', formatNombreSimple(contrat.fraisTransport) + '\u20ac']
+        ],
+        foot: [['TOTAL A PAYER', formatNombreSimple(total) + '\u20ac']],
+        theme: 'grid',
+        styles: { font: 'helvetica', fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [237, 235, 245], textColor: [21, 18, 46], fontStyle: 'bold', halign: 'center' },
+        footStyles: { fillColor: [255, 255, 255], textColor: [21, 18, 46], fontStyle: 'bold' },
+        columnStyles: { 1: { halign: 'right', cellWidth: 30 } }
+      });
+      y = doc.lastAutoTable.finalY + 10;
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+      doc.text('CONDITION :', margeG, y); y += 5.5;
+      doc.setFont('helvetica', 'normal');
+      [
+        'Règlement par chèque, liquide ou virement.',
+        '     ' + RIB_ASSOCIATION.titulaire,
+        '     IBAN : ' + RIB_ASSOCIATION.iban,
+        '     Code BIC : ' + RIB_ASSOCIATION.bic,
+        'Règlement : à 30 jours'
+      ].forEach(function(l){ doc.text(l, margeG, y); y += 5; });
+      y += 4;
+      doc.getTextWidth('x'); // no-op, garde le style courant
+      [
+        'Nous n\u2019accordons pas d\u2019escompte pour paiement anticipé',
+        'Pénalisées en cas de dépassement de l\u2019échéance indiquée sur la présente facture d\u2019une fois',
+        'et demi le taux d\u2019intérêt légal en vigueur.'
+      ].forEach(function(l){ doc.text(l, margeG, y); y += 5; });
+
+      y += 12;
+      const dateFacture = formatDateAvecJour(todayIso());
+      const centreX = margeG + 90;
+      doc.text('Pour l\u2019association, Charlotte PICOT et Louanne LACAULE - Coprésidentes', centreX, y, { align: 'center' });
+      y += 5.5;
+      doc.text('Le ' + dateFacture, centreX, y, { align: 'center' });
+      if (contrat.signatureDataUrl) {
+        doc.addImage(contrat.signatureDataUrl, 'PNG', centreX - 27, y + 3, 50, 15);
+      }
+
+      return { blob: doc.output('blob'), nomFichier: 'Facture_' + numeroFacture + '_' + c.nom.replace(/[\/\\]/g, '-') + '.pdf' };
+    });
+}
+
 $('btn-contrat-generer').addEventListener('click', function(){
   const c = contratClientCourant;
   if (!c) return;
@@ -3459,28 +3578,45 @@ function reimprimerContrat(contrat, format) {
 // venir de la Trésorerie (une opération ponctuelle, à valider comme les
 // autres depuis l'Accueil une fois l'argent réellement reçu). Un contrat
 // ne peut être facturé qu'une seule fois (le bouton disparaît ensuite).
+// Régénère la facture déjà émise (même numéro, pas de nouveau compteur).
+function reimprimerFacture(contrat) {
+  if (!contrat.numeroFacture) { toast('Aucune facture générée pour ce contrat.'); return; }
+  const c = state.clients.find(function(x){ return x.id === contrat.clientId; });
+  if (!c) { toast('Client introuvable.'); return; }
+  toast('Génération en cours…');
+  genererPdfFacture(c, contrat, contrat.numeroFacture).then(function(res){
+    window.saveAs(res.blob, res.nomFichier);
+  }).catch(function(err){ toast('Erreur : ' + err.message); });
+}
+
 function facturerContrat(contrat) {
   if (contrat.factureLe) { toast('Ce contrat est déjà facturé.'); return; }
   const c = state.clients.find(function(x){ return x.id === contrat.clientId; });
   if (!c) { toast('Client introuvable.'); return; }
   toast('Génération de la facture…');
 
-  genererPdfContrat(c, contrat).then(function(res){
-    window.saveAs(res.blob, res.nomFichier);
-    const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
-    return fbDb.collection('recurrentes').add({
-      type: 'recette', frequence: 'ponctuelle', date: contrat.date,
-      montant: total, activite: 'Contrats', sousActivite: contrat.intitule || c.nom,
-      moyenPaiement: 'Virement',
-      libelle: 'Contrat ' + contrat.numero + ' - ' + c.nom,
-      actif: true, forcerAffichage: false, traite: false, derniereValidation: null,
-      contratId: contrat.id,
-      creeParUid: state.user.uid, creeParEmail: state.user.email,
-      creeLe: firebase.firestore.FieldValue.serverTimestamp()
-    });
-  }).then(function(){
-    return firestoreAvecRetentative(function(){
-      return fbDb.collection('contrats').doc(contrat.id).update({ factureLe: firebase.firestore.FieldValue.serverTimestamp() });
+  const anneeCourante = String(new Date().getFullYear());
+  genererNumeroFacture(anneeCourante).then(function(numeroFacture){
+    return genererPdfFacture(c, contrat, numeroFacture).then(function(res){
+      window.saveAs(res.blob, res.nomFichier);
+      const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
+      return fbDb.collection('recurrentes').add({
+        type: 'recette', frequence: 'ponctuelle', date: contrat.date,
+        montant: total, activite: 'Contrats', sousActivite: contrat.intitule || c.nom,
+        moyenPaiement: 'Virement',
+        libelle: 'Facture ' + numeroFacture + ' (contrat ' + contrat.numero + ') - ' + c.nom,
+        actif: true, forcerAffichage: false, traite: false, derniereValidation: null,
+        contratId: contrat.id, numeroFacture: numeroFacture,
+        creeParUid: state.user.uid, creeParEmail: state.user.email,
+        creeLe: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function(){
+        return firestoreAvecRetentative(function(){
+          return fbDb.collection('contrats').doc(contrat.id).update({
+            factureLe: firebase.firestore.FieldValue.serverTimestamp(),
+            numeroFacture: numeroFacture
+          });
+        });
+      });
     });
   }).then(function(){
     toast('Facture générée et ajoutée aux opérations à venir.');

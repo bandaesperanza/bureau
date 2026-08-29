@@ -3434,6 +3434,28 @@ function texteRepresentantsAssociation(pourDocument) {
   };
 }
 
+// Dessine l'encadré en-tête (logo + coordonnées association) avec une
+// hauteur qui s'adapte automatiquement au nombre de lignes nécessaires —
+// notamment le numéro de téléphone, dont la longueur varie selon le nombre
+// de membres du bureau renseignés (sinon le texte déborde de la boîte).
+function dessinerEnteteAssociation(doc, margeG, margeD, y, representants) {
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+  const largeurTexte = margeD - margeG - 24 - 6;
+  const lignesTelephone = doc.splitTextToSize(representants.telephones, largeurTexte);
+  const lignes = ['40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse']
+    .concat(lignesTelephone, ['contact@banda-esperanza.com']);
+  const hauteurBoite = 8 + lignes.length * 3.4 + 2;
+
+  doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
+  doc.rect(margeG + 24, y, margeD - margeG - 24, hauteurBoite);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+  doc.text('Banda ESPERANZA', margeG + 27, y + 5.5);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+  lignes.forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 10 + i * 3.4); });
+
+  return hauteurBoite;
+}
+
 function genererPdfContrat(c, contrat) {
   return Promise.all([chargerLibPDF(), chargerLibFileSaver(), fetch('./logo-header.png').then(function(r){ return r.blob(); }).then(blobToDataURL)])
     .then(function(res){
@@ -3445,17 +3467,8 @@ function genererPdfContrat(c, contrat) {
       const representants = texteRepresentantsAssociation('contrat');
 
       doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
-      doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
-      doc.rect(margeG + 24, y, margeD - margeG - 24, 20);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-      doc.text('Banda ESPERANZA', margeG + 27, y + 5.5);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-      [
-        '40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse',
-        representants.telephones,
-        'contact@banda-esperanza.com'
-      ].forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 10 + i * 3.4); });
-      y += 30;
+      const hauteurEntete1 = dessinerEnteteAssociation(doc, margeG, margeD, y, representants);
+      y += hauteurEntete1 + 10;
 
       doc.setFillColor(237, 235, 245);
       doc.rect(margeG + 40, y, 90, 10, 'FD');
@@ -3585,17 +3598,8 @@ function genererPdfFacture(c, contrat, numeroFacture) {
       const representants = texteRepresentantsAssociation('facture');
 
       doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
-      doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
-      doc.rect(margeG + 24, y, margeD - margeG - 24, 20);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-      doc.text('Banda ESPERANZA', margeG + 27, y + 5.5);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-      [
-        '40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse',
-        representants.telephones,
-        'contact@banda-esperanza.com'
-      ].forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 10 + i * 3.4); });
-      y += 34;
+      const hauteurEntete2 = dessinerEnteteAssociation(doc, margeG, margeD, y, representants);
+      y += hauteurEntete2 + 14;
 
       doc.setFillColor(237, 235, 245);
       doc.rect(margeG + 40, y, 90, 10, 'FD');

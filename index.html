@@ -688,6 +688,7 @@
         <button type="button" id="admin-toggle-activites">🏷️ Activités</button>
         <button type="button" id="admin-toggle-grandlivre">📒 Livre de compte</button>
         <button type="button" id="admin-toggle-recurrentes">📅 À venir</button>
+        <button type="button" id="admin-toggle-bureau">🏛️ Bureau</button>
       </div>
 
       <div id="admin-page-utilisateurs">
@@ -796,6 +797,30 @@
           </div>
 
           <button class="btn btn-primary" id="btn-recurrente-creer" style="margin-top:12px;">＋ Créer l'opération</button>
+        </div>
+      </div>
+
+      <div id="admin-page-bureau" class="hidden">
+        <div class="section-title">Membres du bureau</div>
+        <div class="tx-meta" style="margin-bottom:10px;">
+          Ces membres sont utilisés pour remplir automatiquement les contrats
+          et les factures (nom, fonction, téléphone) — plus besoin de me
+          redemander une modification à chaque changement de bureau.
+        </div>
+        <div class="card">
+          <div id="bureau-liste"></div>
+          <div class="empty-state hidden" id="bureau-empty">Aucun membre pour l'instant.</div>
+        </div>
+
+        <div class="section-title">Ajouter un membre</div>
+        <div class="card">
+          <label class="field-label">Nom</label>
+          <input type="text" id="bureau-nom" placeholder="Ex. Charlotte PICOT">
+          <label class="field-label">Fonction</label>
+          <input type="text" id="bureau-fonction" placeholder="Ex. Co-présidente">
+          <label class="field-label">Téléphone</label>
+          <input type="tel" inputmode="tel" id="bureau-telephone" placeholder="06 03 75 45 50">
+          <button class="btn btn-primary" id="btn-bureau-ajouter" style="margin-top:12px;">＋ Ajouter</button>
         </div>
       </div>
     </section>
@@ -1302,6 +1327,7 @@ const state = {
   transferts: [],
   recurrentes: [],
   clients: [],
+  bureau: [],
   clientRecherche: '',
   clientModalId: null,
   contrats: [],
@@ -1320,7 +1346,7 @@ const state = {
 };
 state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
-let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null, unsubClients = null, unsubContrats = null;
+let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null, unsubClients = null, unsubContrats = null, unsubBureau = null;
 
 /* ============================================================
    UTILITAIRES
@@ -1609,6 +1635,7 @@ fbAuth.onAuthStateChanged(function(user){
   if (unsubRecurrentes) { unsubRecurrentes(); unsubRecurrentes = null; }
   if (unsubClients) { unsubClients(); unsubClients = null; }
   if (unsubContrats) { unsubContrats(); unsubContrats = null; }
+  if (unsubBureau) { unsubBureau(); unsubBureau = null; }
 
   if (!user) {
     state.user = null; state.role = null;
@@ -1649,6 +1676,7 @@ fbAuth.onAuthStateChanged(function(user){
     chargerActivites(isAdmin).then(function(){
       demarrerEcouteTransactions();
       demarrerEcouteComptesBancaires();
+      demarrerEcouteBureau();
       demarrerEcouteTransferts();
       demarrerEcouteRecurrentes();
       demarrerEcouteClients();
@@ -2793,6 +2821,58 @@ $('rappel-recurrentes-liste').addEventListener('click', function(e){
 
 
 /* ============================================================
+   BUREAU — membres (nom, fonction, téléphone) utilisés pour remplir
+   automatiquement les contrats et factures, sans jamais retoucher au code.
+   ============================================================ */
+function demarrerEcouteBureau() {
+  if (unsubBureau) unsubBureau();
+  unsubBureau = fbDb.collection('config').doc('bureau').onSnapshot(function(doc){
+    state.bureau = (doc.exists && Array.isArray(doc.data().membres)) ? doc.data().membres : [];
+    if (state.adminPage === 'bureau' && document.getElementById('view-users').classList.contains('active')) renderBureauListe();
+  }, function(err){ console.error('Ecoute bureau :', err); });
+}
+function sauvegarderBureau() {
+  return fbDb.collection('config').doc('bureau').set({ membres: state.bureau });
+}
+
+function renderBureauListe() {
+  const el = $('bureau-liste');
+  el.innerHTML = '';
+  $('bureau-empty').classList.toggle('hidden', state.bureau.length > 0);
+  state.bureau.forEach(function(m, index){
+    const carte = document.createElement('div');
+    carte.className = 'recurrente-carte';
+    carte.innerHTML =
+      '<div style="min-width:0;"><div style="font-weight:600;">' + escHtml(m.nom) + '</div>' +
+      '<div class="tx-meta">' + escHtml(m.fonction || '') + (m.telephone ? ' · ' + escHtml(m.telephone) : '') + '</div></div>' +
+      '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp); flex-shrink:0;" data-action="supprimer" data-index="' + index + '">🗑</button>';
+    el.appendChild(carte);
+  });
+}
+$('bureau-liste').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-action="supprimer"]');
+  if (!btn) return;
+  const index = parseInt(btn.dataset.index, 10);
+  if (!confirm('Retirer "' + state.bureau[index].nom + '" du bureau ?')) return;
+  state.bureau.splice(index, 1);
+  renderBureauListe();
+  sauvegarderBureau().catch(function(err){ toast('Erreur : ' + err.message); });
+});
+$('btn-bureau-ajouter').addEventListener('click', function(){
+  const nom = $('bureau-nom').value.trim();
+  const fonction = $('bureau-fonction').value.trim();
+  const telephone = $('bureau-telephone').value.trim();
+  if (!nom) { toast('Le nom est obligatoire.'); return; }
+  state.bureau.push({ nom: nom, fonction: fonction, telephone: telephone });
+  renderBureauListe();
+  sauvegarderBureau().then(function(){
+    toast('Membre ajouté.');
+    $('bureau-nom').value = ''; $('bureau-fonction').value = ''; $('bureau-telephone').value = '';
+  }).catch(function(err){ toast('Erreur : ' + err.message); });
+});
+
+
+/* ============================================================
    CLIENTS — base contacts (mairies, comités, entreprises…), premier
    morceau du futur module Contrats.
    ============================================================ */
@@ -3273,6 +3353,30 @@ function genererDocxContrat(c, contrat) {
 
 // Construit le PDF équivalent avec jsPDF (mise en page proche du Word, sans
 // être pixel identique) — même logique de réutilisation création/réimpression.
+// Construit les textes des représentants de l'association à partir du
+// bureau configuré en Admin (repli sur les valeurs historiques si le bureau
+// n'a pas encore été renseigné, pour ne jamais casser un contrat existant).
+function texteRepresentantsAssociation() {
+  if (!state.bureau || state.bureau.length === 0) {
+    return {
+      noms: 'Mme PICOT Charlotte & Mme LACAULE Louanne',
+      fonction: 'Co-présidente et représentante de l\u2019association Banda Esperanza',
+      telephones: 'Tél. : 06.03.75.45.50 (Charlotte) ou 06.28.28.66.63 (Louanne)',
+      signature: 'Charlotte PICOT et Louanne LACAULE - Coprésidentes'
+    };
+  }
+  const noms = state.bureau.map(function(m){ return m.nom; }).join(' & ');
+  const fonctions = Array.from(new Set(state.bureau.map(function(m){ return m.fonction; }).filter(Boolean)));
+  const telephones = state.bureau.filter(function(m){ return m.telephone; })
+    .map(function(m){ return m.telephone + ' (' + m.nom.split(' ')[0] + ')'; }).join(' ou ');
+  return {
+    noms: noms,
+    fonction: (fonctions.length ? fonctions.join(' / ') : 'Représentant(e)') + ' de l\u2019association Banda Esperanza',
+    telephones: 'Tél. : ' + (telephones || '\u2014'),
+    signature: noms + (fonctions.length ? ' - ' + fonctions.join(' / ') : '')
+  };
+}
+
 function genererPdfContrat(c, contrat) {
   return Promise.all([chargerLibPDF(), chargerLibFileSaver(), fetch('./logo-header.png').then(function(r){ return r.blob(); }).then(blobToDataURL)])
     .then(function(res){
@@ -3281,6 +3385,7 @@ function genererPdfContrat(c, contrat) {
       const margeG = 18, margeD = 192;
       let y = 16;
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
+      const representants = texteRepresentantsAssociation();
 
       doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
       doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
@@ -3290,7 +3395,7 @@ function genererPdfContrat(c, contrat) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       [
         '40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse',
-        'Tél. : 06.03.75.45.50 (Charlotte) \u2013 06.28.28.66.63 (Louanne)',
+        representants.telephones,
         'contact@banda-esperanza.com'
       ].forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 10 + i * 3.4); });
       y += 30;
@@ -3326,10 +3431,10 @@ function genererPdfContrat(c, contrat) {
       }
 
       ligne('Entre les soussignés :', { gras: true, apres: 2 });
-      ligne('Mme PICOT Charlotte & Mme LACAULE Louanne', { gras: true, indent: 4 });
-      ligne('Co-présidente et représentante de l\u2019association Banda Esperanza', { indent: 4 });
+      ligne(representants.noms, { gras: true, indent: 4 });
+      ligne(representants.fonction, { indent: 4 });
       ligne('Siege social : 40 Ter Avenue Côte d\u2019Argent \u2013 40230 St Vincent de Tyrosse', { indent: 4 });
-      ligne('Tél. : 06.03.75.45.50 (Charlotte) ou 06.28.28.66.63 (Louanne)', { indent: 4 });
+      ligne(representants.telephones, { indent: 4 });
       ligne('Email : contact@banda-esperanza.com', { indent: 4 });
       ligne('Association Loi 1901 déclarée sous le numéro W401000309 \u2013 SIRET : 793 475 344 00016', { indent: 4 });
       ligne('Ci-après désigné : « L\u2019association »', { indent: 4, apres: 2 });
@@ -3420,6 +3525,7 @@ function genererPdfFacture(c, contrat, numeroFacture) {
       const margeG = 18, margeD = 192;
       let y = 16;
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
+      const representants = texteRepresentantsAssociation();
 
       doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
       doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
@@ -3429,7 +3535,7 @@ function genererPdfFacture(c, contrat, numeroFacture) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       [
         '40 Ter Avenue de la côte d\u2019argent', '40230 St Vincent de Tyrosse',
-        'Tél. : 06.03.75.45.50 (Charlotte) \u2013 06.28.28.66.63 (Louanne)',
+        representants.telephones,
         'contact@banda-esperanza.com'
       ].forEach(function(ligne, i){ doc.text(ligne, margeG + 27, y + 10 + i * 3.4); });
       y += 34;
@@ -3495,7 +3601,7 @@ function genererPdfFacture(c, contrat, numeroFacture) {
       y += 12;
       const dateFacture = formatDateAvecJour(todayIso());
       const centreX = margeG + 90;
-      doc.text('Pour l\u2019association, Charlotte PICOT et Louanne LACAULE - Coprésidentes', centreX, y, { align: 'center' });
+      doc.text('Pour l\u2019association, ' + representants.signature, centreX, y, { align: 'center' });
       y += 5.5;
       doc.text('Le ' + dateFacture, centreX, y, { align: 'center' });
       if (contrat.signatureDataUrl) {
@@ -5316,17 +5422,21 @@ function afficherPageAdmin(page) {
   $('admin-toggle-activites').classList.toggle('active', page === 'activites');
   $('admin-toggle-grandlivre').classList.toggle('active', page === 'grandlivre');
   $('admin-toggle-recurrentes').classList.toggle('active', page === 'recurrentes');
+  $('admin-toggle-bureau').classList.toggle('active', page === 'bureau');
   $('admin-page-utilisateurs').classList.toggle('hidden', page !== 'utilisateurs');
   $('admin-page-activites').classList.toggle('hidden', page !== 'activites');
   $('admin-page-grandlivre').classList.toggle('hidden', page !== 'grandlivre');
   $('admin-page-recurrentes').classList.toggle('hidden', page !== 'recurrentes');
+  $('admin-page-bureau').classList.toggle('hidden', page !== 'bureau');
   if (page === 'recurrentes') { remplirSelectsRecurrente(); renderRecurrentesListe(); }
+  if (page === 'bureau') renderBureauListe();
   remonterEnHaut();
 }
 $('admin-toggle-utilisateurs').addEventListener('click', function(){ afficherPageAdmin('utilisateurs'); });
 $('admin-toggle-activites').addEventListener('click', function(){ afficherPageAdmin('activites'); });
 $('admin-toggle-grandlivre').addEventListener('click', function(){ afficherPageAdmin('grandlivre'); });
 $('admin-toggle-recurrentes').addEventListener('click', function(){ afficherPageAdmin('recurrentes'); });
+$('admin-toggle-bureau').addEventListener('click', function(){ afficherPageAdmin('bureau'); });
 
 /* ============================================================
    ADMIN — LANCER L'ANNEE COMPTABLE (structure Drive complète)

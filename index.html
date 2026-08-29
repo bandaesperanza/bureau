@@ -754,11 +754,6 @@
           <div class="empty-state hidden" id="recurrentes-empty">Aucune opération à venir pour l'instant.</div>
         </div>
 
-        <div id="recurrentes-traitees-zone" class="card hidden">
-          <div id="recurrentes-traitees-lien" style="cursor:pointer; color:var(--focus); font-weight:600; font-size:13px;"></div>
-          <div id="recurrentes-traitees-liste" class="hidden" style="margin-top:10px;"></div>
-        </div>
-
         <div class="section-title">Nouvelle opération à venir</div>
         <div class="card">
           <div class="tx-meta" style="margin-bottom:10px;">
@@ -2612,14 +2607,13 @@ $('btn-recurrente-creer').addEventListener('click', function(){
   }).then(function(){ btn.disabled = false; });
 });
 
-let recurrentesTraiteesVisibles = false;
-
 function renderRecurrentesListe() {
   const el = $('recurrentes-liste');
   el.innerHTML = '';
 
+  // Les opérations ponctuelles déjà traitées ne sont plus affichées du tout
+  // dans Admin — elles n'ont plus d'utilité une fois traitées.
   const enCours = state.recurrentes.filter(function(r){ return !(r.frequence === 'ponctuelle' && r.traite === true); });
-  const traitees = state.recurrentes.filter(function(r){ return r.frequence === 'ponctuelle' && r.traite === true; });
 
   $('recurrentes-empty').classList.toggle('hidden', enCours.length > 0);
 
@@ -2652,25 +2646,7 @@ function renderRecurrentesListe() {
     const cleB = b.frequence === 'ponctuelle' ? (b.date || '') : '9999-' + String(b.jourDuMois || 0).padStart(2, '0');
     return cleA < cleB ? -1 : cleA > cleB ? 1 : 0;
   }).forEach(function(r){ el.appendChild(construireCarte(r)); });
-
-  const zoneTraitees = $('recurrentes-traitees-zone');
-  if (traitees.length === 0) {
-    zoneTraitees.classList.add('hidden');
-  } else {
-    zoneTraitees.classList.remove('hidden');
-    $('recurrentes-traitees-lien').textContent = (recurrentesTraiteesVisibles ? '▴ Masquer' : '▾ Afficher') + ' les ' + traitees.length + ' opération(s) ponctuelle(s) déjà traitée(s)';
-    const listeTraitees = $('recurrentes-traitees-liste');
-    listeTraitees.classList.toggle('hidden', !recurrentesTraiteesVisibles);
-    listeTraitees.innerHTML = '';
-    if (recurrentesTraiteesVisibles) {
-      traitees.forEach(function(r){ listeTraitees.appendChild(construireCarte(r)); });
-    }
-  }
 }
-$('recurrentes-traitees-lien').addEventListener('click', function(){
-  recurrentesTraiteesVisibles = !recurrentesTraiteesVisibles;
-  renderRecurrentesListe();
-});
 $('recurrentes-liste').addEventListener('click', function(e){
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;

@@ -812,7 +812,7 @@
           <div class="empty-state hidden" id="bureau-empty">Aucun membre pour l'instant.</div>
         </div>
 
-        <div class="section-title">Ajouter un membre</div>
+        <div class="section-title" id="bureau-titre-formulaire">Ajouter un membre</div>
         <div class="card">
           <label class="field-label">Nom</label>
           <input type="text" id="bureau-nom" placeholder="">
@@ -827,7 +827,10 @@
           <label style="display:flex; align-items:center; gap:8px; margin-top:8px; cursor:pointer;">
             <input type="checkbox" id="bureau-sur-facture" checked style="width:auto;"> Les factures
           </label>
-          <button class="btn btn-primary" id="btn-bureau-ajouter" style="margin-top:14px;">＋ Ajouter</button>
+          <div style="display:flex; gap:8px; margin-top:14px;">
+            <button class="btn btn-secondary hidden" id="btn-bureau-annuler" style="width:auto; flex:1;">Annuler</button>
+            <button class="btn btn-primary" id="btn-bureau-ajouter" style="flex:1;">＋ Ajouter</button>
+          </div>
         </div>
       </div>
     </section>
@@ -2842,6 +2845,8 @@ function sauvegarderBureau() {
   return fbDb.collection('config').doc('bureau').set({ membres: state.bureau });
 }
 
+let bureauEditIndex = null;
+
 function renderBureauListe() {
   const el = $('bureau-liste');
   el.innerHTML = '';
@@ -2856,19 +2861,48 @@ function renderBureauListe() {
       '<div style="min-width:0;"><div style="font-weight:600;">' + escHtml(m.nom) + '</div>' +
       '<div class="tx-meta">' + escHtml(m.fonction || '') + (m.telephone ? ' · ' + escHtml(m.telephone) : '') + '</div>' +
       '<div class="tx-meta">' + (badges || 'N\'apparaît sur aucun document') + '</div></div>' +
-      '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp); flex-shrink:0;" data-action="supprimer" data-index="' + index + '">🗑</button>';
+      '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px;" data-action="modifier" data-index="' + index + '">✏️</button>' +
+        '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp);" data-action="supprimer" data-index="' + index + '">🗑</button>' +
+      '</div>';
     el.appendChild(carte);
   });
 }
 $('bureau-liste').addEventListener('click', function(e){
-  const btn = e.target.closest('button[data-action="supprimer"]');
+  const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const index = parseInt(btn.dataset.index, 10);
-  if (!confirm('Retirer "' + state.bureau[index].nom + '" du bureau ?')) return;
-  state.bureau.splice(index, 1);
-  renderBureauListe();
-  sauvegarderBureau().catch(function(err){ toast('Erreur : ' + err.message); });
+  if (btn.dataset.action === 'supprimer') {
+    if (!confirm('Retirer "' + state.bureau[index].nom + '" du bureau ?')) return;
+    state.bureau.splice(index, 1);
+    if (bureauEditIndex === index) annulerEditionBureau();
+    renderBureauListe();
+    sauvegarderBureau().catch(function(err){ toast('Erreur : ' + err.message); });
+  } else if (btn.dataset.action === 'modifier') {
+    const m = state.bureau[index];
+    bureauEditIndex = index;
+    $('bureau-nom').value = m.nom || '';
+    $('bureau-fonction').value = m.fonction || '';
+    $('bureau-telephone').value = m.telephone || '';
+    $('bureau-sur-contrat').checked = m.surContrat !== false;
+    $('bureau-sur-facture').checked = m.surFacture !== false;
+    $('bureau-titre-formulaire').textContent = 'Modifier ce membre';
+    $('btn-bureau-ajouter').textContent = '💾 Enregistrer les modifications';
+    $('btn-bureau-annuler').classList.remove('hidden');
+    $('bureau-nom').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 });
+
+function annulerEditionBureau() {
+  bureauEditIndex = null;
+  $('bureau-nom').value = ''; $('bureau-fonction').value = ''; $('bureau-telephone').value = '';
+  $('bureau-sur-contrat').checked = true; $('bureau-sur-facture').checked = true;
+  $('bureau-titre-formulaire').textContent = 'Ajouter un membre';
+  $('btn-bureau-ajouter').textContent = '＋ Ajouter';
+  $('btn-bureau-annuler').classList.add('hidden');
+}
+$('btn-bureau-annuler').addEventListener('click', annulerEditionBureau);
+
 $('btn-bureau-ajouter').addEventListener('click', function(){
   const nom = $('bureau-nom').value.trim();
   const fonction = $('bureau-fonction').value.trim();
@@ -2876,12 +2910,16 @@ $('btn-bureau-ajouter').addEventListener('click', function(){
   const surContrat = $('bureau-sur-contrat').checked;
   const surFacture = $('bureau-sur-facture').checked;
   if (!nom) { toast('Le nom est obligatoire.'); return; }
-  state.bureau.push({ nom: nom, fonction: fonction, telephone: telephone, surContrat: surContrat, surFacture: surFacture });
+  const membre = { nom: nom, fonction: fonction, telephone: telephone, surContrat: surContrat, surFacture: surFacture };
+  if (bureauEditIndex !== null) {
+    state.bureau[bureauEditIndex] = membre;
+  } else {
+    state.bureau.push(membre);
+  }
   renderBureauListe();
   sauvegarderBureau().then(function(){
-    toast('Membre ajouté.');
-    $('bureau-nom').value = ''; $('bureau-fonction').value = ''; $('bureau-telephone').value = '';
-    $('bureau-sur-contrat').checked = true; $('bureau-sur-facture').checked = true;
+    toast(bureauEditIndex !== null ? 'Membre modifié.' : 'Membre ajouté.');
+    annulerEditionBureau();
   }).catch(function(err){ toast('Erreur : ' + err.message); });
 });
 

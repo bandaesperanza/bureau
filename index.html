@@ -316,8 +316,9 @@
     padding: 10px 0; border-bottom: 1px solid var(--rule); margin-bottom: 0;
   }
   .contrat-carte-sansfond:last-child { border-bottom: none; }
+  .contrat-entete-ligne { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .contrat-nom-client {
-    font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;
   }
   .contrat-ligne-bas {
     display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 10px;
@@ -1161,6 +1162,9 @@
   <div class="modal-sheet">
     <h2 class="modal-title" id="contrat-modal-titre">Nouveau contrat</h2>
     <div class="tx-meta" id="contrat-client-nom" style="margin-bottom:14px; font-weight:600; font-size:15px; color:var(--ink);"></div>
+
+    <label class="field-label">Numéro de contrat</label>
+    <input type="text" id="contrat-numero" placeholder="Génération…">
 
     <label class="field-label">Lieu de la représentation</label>
     <input type="text" id="contrat-lieu" placeholder="Ex. Saint-Geours-de-Maremne - Salle des fêtes">
@@ -2998,8 +3002,11 @@ function construireLigneContrat(c, avecNomClient) {
   const carte = document.createElement('div');
   carte.className = avecNomClient ? 'card contrat-carte' : 'contrat-carte contrat-carte-sansfond';
   carte.innerHTML =
-    (avecNomClient ? '<div class="contrat-nom-client">' + escHtml(c.clientNom || '') + '</div>' : '') +
-    '<div class="tx-meta">' + (c.numero ? 'N° ' + escHtml(c.numero) + ' · ' : '') + escHtml(c.lieu || '') + ' · ' + formatDateShort(c.date) + '</div>' +
+    '<div class="contrat-entete-ligne">' +
+      '<div class="contrat-nom-client">' + (avecNomClient ? escHtml(c.clientNom || '') : '') + '</div>' +
+      (c.numero ? '<span class="badge-type-client">N° ' + escHtml(c.numero) + '</span>' : '') +
+    '</div>' +
+    '<div class="tx-meta">' + formatDateShort(c.date) + (c.lieu ? ' · ' + escHtml(c.lieu) : '') + '</div>' +
     '<div class="contrat-ligne-bas">' +
       '<span class="tresorerie-tableau-montant">' + formatMoney(c.montant) + '</span>' +
       '<div style="display:flex; align-items:center; gap:6px;">' +
@@ -3133,12 +3140,26 @@ $('btn-client-nouveau-contrat').addEventListener('click', function(){
 
 // Ouvre le formulaire de contrat, vide (nouveau) ou pré-rempli (édition
 // depuis l'historique). contratExistant = null pour une création.
+let contratNumeroModifieManuellement = false;
+$('contrat-numero').addEventListener('input', function(){ contratNumeroModifieManuellement = true; });
+
 function ouvrirModaleContrat(client, contratExistant) {
   contratClientCourant = client;
   state.contratEditId = contratExistant ? contratExistant.id : null;
   $('contrat-client-nom').textContent = client.nom;
   $('contrat-modal-titre').textContent = contratExistant ? 'Modifier le contrat ' + (contratExistant.numero || '') : 'Nouveau contrat';
   $('btn-contrat-generer').textContent = contratExistant ? '💾 Enregistrer et régénérer' : '📄 Générer';
+
+  contratNumeroModifieManuellement = false;
+  if (contratExistant) {
+    $('contrat-numero').value = contratExistant.numero || '';
+  } else {
+    $('contrat-numero').value = '';
+    $('contrat-numero').placeholder = 'Génération…';
+    genererNumeroContrat(String(new Date().getFullYear())).then(function(numero){
+      if (!contratNumeroModifieManuellement) $('contrat-numero').value = numero;
+    }).catch(function(err){ $('contrat-numero').placeholder = '—'; toast('Numéro non généré : ' + err.message); });
+  }
 
   $('contrat-lieu').value = contratExistant ? contratExistant.lieu : '';
   $('contrat-date').value = contratExistant ? contratExistant.date : '';
@@ -3350,6 +3371,7 @@ function blobToDataURL(blob) {
 $('btn-contrat-generer').addEventListener('click', function(){
   const c = contratClientCourant;
   if (!c) return;
+  const numero = $('contrat-numero').value.trim();
   const lieu = $('contrat-lieu').value.trim();
   const date = $('contrat-date').value;
   const horaireDebut = $('contrat-horaire-debut').value;
@@ -3359,6 +3381,7 @@ $('btn-contrat-generer').addEventListener('click', function(){
   const dateSignature = $('contrat-datesignature').value;
   const idEnEdition = state.contratEditId;
 
+  if (!numero) { toast('Numéro de contrat obligatoire.'); return; }
   if (!lieu) { toast('Lieu obligatoire.'); return; }
   if (!date) { toast('Date de la représentation obligatoire.'); return; }
   if (!horaireDebut || !horaireFin) { toast('Horaire obligatoire.'); return; }
@@ -3371,7 +3394,7 @@ $('btn-contrat-generer').addEventListener('click', function(){
   statusEl.textContent = 'Génération du contrat…';
 
   const donneesContrat = {
-    clientId: c.id, clientNom: c.nom, lieu: lieu, date: date,
+    clientId: c.id, clientNom: c.nom, numero: numero, lieu: lieu, date: date,
     horaireDebut: horaireDebut, horaireFin: horaireFin,
     montant: montant, fraisTransport: fraisTransport,
     dateSignature: dateSignature, creeParUid: state.user.uid, creeParEmail: state.user.email,
@@ -3381,15 +3404,7 @@ $('btn-contrat-generer').addEventListener('click', function(){
     donneesContrat.signatureDataUrl = $('contrat-signature-canvas').toDataURL('image/png');
   }
 
-  // Édition : on garde le numéro déjà attribué, pas de nouveau compteur.
-  const promesseNumero = idEnEdition
-    ? Promise.resolve(state.contrats.find(function(x){ return x.id === idEnEdition; }).numero)
-    : genererNumeroContrat(date.slice(0, 4));
-
-  promesseNumero.then(function(numeroContrat){
-    donneesContrat.numero = numeroContrat;
-    return genererPdfContrat(c, donneesContrat);
-  }).then(function(res){
+  genererPdfContrat(c, donneesContrat).then(function(res){
     window.saveAs(res.blob, res.nomFichier);
     statusEl.textContent = 'Contrat ' + donneesContrat.numero + ' généré (PDF).';
     return idEnEdition

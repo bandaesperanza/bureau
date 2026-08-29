@@ -2738,14 +2738,13 @@ $('btn-toggle-recurrentes').addEventListener('click', function(){
 function pousserRecurrenteDansSaisie(rec) {
   showView('form'); // remet le formulaire à zéro avant de le pré-remplir
 
-  setFormType(rec.type);
-  $('form-activite').value = rec.activite;
-  remplirSousActivites();
-  $('form-sousactivite').value = rec.sousActivite;
-  remplirMoyensPaiement();
-  $('form-moyen').value = rec.moyenPaiement;
-  $('form-montant').value = rec.montant;
-  $('form-libelle').value = rec.libelle;
+  try { setFormType(rec.type); } catch (e) { console.error('setFormType a échoué :', e); }
+
+  // Ces champs ne dépendent d'aucune configuration existante (montant/texte
+  // libres) — on les remplit en premier pour qu'ils soient toujours au
+  // rendez-vous, même si le reste (activité/sous-activité) pose souci.
+  $('form-montant').value = rec.montant != null ? rec.montant : '';
+  $('form-libelle').value = rec.libelle || '';
 
   let dateVoulue;
   if (rec.frequence === 'ponctuelle') {
@@ -2762,6 +2761,21 @@ function pousserRecurrenteDansSaisie(rec) {
   $('form-date').value = dateVoulue;
   $('form-date-display').textContent = formatDateLongue(dateVoulue);
   rafraichirNumeroFormulaire();
+
+  // Activité / sous-activité / moyen : peut échouer à se caler exactement
+  // si la valeur ne correspond à rien de configuré (ex. sous-activité
+  // générée automatiquement par une facturation) — protégé pour ne jamais
+  // faire échouer le reste du pré-remplissage si ça arrive.
+  try {
+    $('form-activite').value = rec.activite;
+    remplirSousActivites();
+    $('form-sousactivite').value = rec.sousActivite;
+    remplirMoyensPaiement();
+    $('form-moyen').value = rec.moyenPaiement;
+  } catch (e) {
+    console.error('Pré-remplissage activité/sous-activité échoué :', e);
+    toast('Certains champs n\'ont pas pu être pré-remplis automatiquement, complète-les à la main.');
+  }
 
   state.formOrigineRecurrente = rec.id;
   toast('"' + rec.libelle + '" chargée — vérifie (dont la date) puis enregistre.');
@@ -3589,6 +3603,18 @@ function reimprimerFacture(contrat) {
   }).catch(function(err){ toast('Erreur : ' + err.message); });
 }
 
+// S'assure qu'une sous-activité donnée existe bien dans la liste "Contrats"
+// (recette), et l'ajoute sinon — indispensable pour que la sous-activité
+// générée automatiquement à la facturation (nom du client/intitulé) puisse
+// ensuite être sélectionnée normalement dans le formulaire de Saisie.
+function garantirSousActiviteContrats(nomSousActivite) {
+  const act = state.activitesRecettes.find(function(a){ return a.nom === 'Contrats'; });
+  if (!act) return Promise.resolve(); // catégorie "Contrats" pas configurée, rien à faire de plus
+  if (act.sousActivites.indexOf(nomSousActivite) !== -1) return Promise.resolve(); // déjà là
+  act.sousActivites.push(nomSousActivite);
+  return sauvegarderActivites('recette');
+}
+
 function facturerContrat(contrat) {
   if (contrat.factureLe) { toast('Ce contrat est déjà facturé.'); return; }
   const c = state.clients.find(function(x){ return x.id === contrat.clientId; });
@@ -3614,9 +3640,13 @@ function facturerContrat(contrat) {
       toast('Facture ' + numeroFacture + ' générée.');
 
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
+      const sousActivite = contrat.intitule || c.nom;
+      garantirSousActiviteContrats(sousActivite).catch(function(err){
+        console.warn('Ajout sous-activité "Contrats" échoué :', err);
+      });
       fbDb.collection('recurrentes').add({
         type: 'recette', frequence: 'ponctuelle', date: contrat.date,
-        montant: total, activite: 'Contrats', sousActivite: contrat.intitule || c.nom,
+        montant: total, activite: 'Contrats', sousActivite: sousActivite,
         moyenPaiement: 'Virement',
         libelle: 'Facture ' + numeroFacture + ' (contrat ' + contrat.numero + ') - ' + c.nom,
         actif: true, forcerAffichage: false, traite: false, derniereValidation: null,

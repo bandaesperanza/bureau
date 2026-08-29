@@ -3599,8 +3599,22 @@ function facturerContrat(contrat) {
   genererNumeroFacture(anneeCourante).then(function(numeroFacture){
     return genererPdfFacture(c, contrat, numeroFacture).then(function(res){
       window.saveAs(res.blob, res.nomFichier);
+
+      // Marquage immédiat, sans attendre la confirmation Firestore (qui peut
+      // traîner ou rester en attente — comportement connu du SDK avec la
+      // persistance hors-ligne, déjà rencontré pour la suppression). Sans
+      // ça, le bouton "Facturer" restait cliquable entre-temps et permettait
+      // de regénérer une facture à chaque appui.
+      contrat.factureLe = true;
+      contrat.numeroFacture = numeroFacture;
+      if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
+      if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
+        renderHistoriqueContrats(state.clientModalId);
+      }
+      toast('Facture ' + numeroFacture + ' générée.');
+
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
-      return fbDb.collection('recurrentes').add({
+      fbDb.collection('recurrentes').add({
         type: 'recette', frequence: 'ponctuelle', date: contrat.date,
         montant: total, activite: 'Contrats', sousActivite: contrat.intitule || c.nom,
         moyenPaiement: 'Virement',
@@ -3609,22 +3623,21 @@ function facturerContrat(contrat) {
         contratId: contrat.id, numeroFacture: numeroFacture,
         creeParUid: state.user.uid, creeParEmail: state.user.email,
         creeLe: firebase.firestore.FieldValue.serverTimestamp()
-      }).then(function(){
-        return firestoreAvecRetentative(function(){
-          return fbDb.collection('contrats').doc(contrat.id).update({
-            factureLe: firebase.firestore.FieldValue.serverTimestamp(),
-            numeroFacture: numeroFacture
-          });
+      }).catch(function(err){
+        if (gererErreurClientFirestoreTermine(err)) return;
+        toast('Attention : l\'opération à venir n\'a pas pu être créée : ' + err.message);
+      });
+
+      firestoreAvecRetentative(function(){
+        return fbDb.collection('contrats').doc(contrat.id).update({
+          factureLe: firebase.firestore.FieldValue.serverTimestamp(),
+          numeroFacture: numeroFacture
         });
+      }).catch(function(err){
+        if (gererErreurClientFirestoreTermine(err)) return;
+        toast('Attention : le contrat n\'a pas pu être marqué "facturé" côté serveur : ' + err.message);
       });
     });
-  }).then(function(){
-    toast('Facture générée et ajoutée aux opérations à venir.');
-    contrat.factureLe = true; // reflet local immédiat, en attendant l'écoute Firestore
-    if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
-    if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
-      renderHistoriqueContrats(state.clientModalId);
-    }
   }).catch(function(err){
     if (gererErreurClientFirestoreTermine(err)) return;
     toast('Erreur : ' + err.message);

@@ -1166,6 +1166,9 @@
     <label class="field-label">Numéro de contrat</label>
     <input type="text" id="contrat-numero" placeholder="Génération…">
 
+    <label class="field-label">Intitulé (pour repérer le contrat)</label>
+    <input type="text" id="contrat-intitule" placeholder="Ex. Marché des producteurs">
+
     <label class="field-label">Lieu de la représentation</label>
     <input type="text" id="contrat-lieu" placeholder="Ex. Saint-Geours-de-Maremne - Salle des fêtes">
 
@@ -1199,6 +1202,10 @@
       <div class="date-display" id="contrat-datesignature-display">Choisir…</div>
       <input type="date" id="contrat-datesignature">
     </div>
+
+    <label class="field-label">Informations (heure de RDV, lieu, notes internes…)</label>
+    <textarea id="contrat-informations" placeholder="Ex. RDV 18h30 devant la mairie, contact sur place : ..."></textarea>
+    <div class="tx-meta" style="margin-top:4px; margin-bottom:10px;">Usage interne — n'apparaît pas dans le contrat Word/PDF généré.</div>
 
     <label class="field-label">Signature (association) — signe avec le doigt</label>
     <canvas id="contrat-signature-canvas" width="500" height="150" style="width:100%; height:150px; border:1px solid var(--rule); border-radius:10px; background:var(--paper); touch-action:none; display:block;"></canvas>
@@ -3006,7 +3013,7 @@ function construireLigneContrat(c, avecNomClient) {
       '<div class="contrat-nom-client">' + (avecNomClient ? escHtml(c.clientNom || '') : '') + '</div>' +
       (c.numero ? '<span class="badge-type-client">N° ' + escHtml(c.numero) + '</span>' : '') +
     '</div>' +
-    '<div class="tx-meta">' + formatDateShort(c.date) + (c.lieu ? ' · ' + escHtml(c.lieu) : '') + '</div>' +
+    '<div class="tx-meta">' + (c.intitule ? escHtml(c.intitule) + ' · ' : '') + formatDateShort(c.date) + (c.lieu ? ' · ' + escHtml(c.lieu) : '') + '</div>' +
     '<div class="contrat-ligne-bas">' +
       '<span class="tresorerie-tableau-montant">' + formatMoney(c.montant) + '</span>' +
       '<div style="display:flex; align-items:center; gap:6px;">' +
@@ -3161,6 +3168,7 @@ function ouvrirModaleContrat(client, contratExistant) {
     }).catch(function(err){ $('contrat-numero').placeholder = '—'; toast('Numéro non généré : ' + err.message); });
   }
 
+  $('contrat-intitule').value = contratExistant ? (contratExistant.intitule || '') : '';
   $('contrat-lieu').value = contratExistant ? contratExistant.lieu : '';
   $('contrat-date').value = contratExistant ? contratExistant.date : '';
   $('contrat-date-display').textContent = contratExistant ? formatDateLongue(contratExistant.date) : 'Choisir…';
@@ -3173,6 +3181,7 @@ function ouvrirModaleContrat(client, contratExistant) {
   const dateSign = contratExistant ? (contratExistant.dateSignature || todayIso()) : todayIso();
   $('contrat-datesignature').value = dateSign;
   $('contrat-datesignature-display').textContent = formatDateLongue(dateSign);
+  $('contrat-informations').value = contratExistant ? (contratExistant.informations || '') : '';
   $('contrat-generation-status').textContent = '';
 
   effacerSignature();
@@ -3372,6 +3381,7 @@ $('btn-contrat-generer').addEventListener('click', function(){
   const c = contratClientCourant;
   if (!c) return;
   const numero = $('contrat-numero').value.trim();
+  const intitule = $('contrat-intitule').value.trim();
   const lieu = $('contrat-lieu').value.trim();
   const date = $('contrat-date').value;
   const horaireDebut = $('contrat-horaire-debut').value;
@@ -3379,6 +3389,7 @@ $('btn-contrat-generer').addEventListener('click', function(){
   const montant = parseFloat($('contrat-montant').value);
   const fraisTransport = parseFloat($('contrat-frais-transport').value) || 0;
   const dateSignature = $('contrat-datesignature').value;
+  const informations = $('contrat-informations').value.trim();
   const idEnEdition = state.contratEditId;
 
   if (!numero) { toast('Numéro de contrat obligatoire.'); return; }
@@ -3394,10 +3405,11 @@ $('btn-contrat-generer').addEventListener('click', function(){
   statusEl.textContent = 'Génération du contrat…';
 
   const donneesContrat = {
-    clientId: c.id, clientNom: c.nom, numero: numero, lieu: lieu, date: date,
+    clientId: c.id, clientNom: c.nom, numero: numero, intitule: intitule, lieu: lieu, date: date,
     horaireDebut: horaireDebut, horaireFin: horaireFin,
     montant: montant, fraisTransport: fraisTransport,
-    dateSignature: dateSignature, creeParUid: state.user.uid, creeParEmail: state.user.email,
+    dateSignature: dateSignature, informations: informations,
+    creeParUid: state.user.uid, creeParEmail: state.user.email,
     creeLe: firebase.firestore.FieldValue.serverTimestamp()
   };
   if (!signatureEstVide()) {

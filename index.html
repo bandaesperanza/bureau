@@ -814,6 +814,8 @@
 
         <div class="section-title" id="bureau-titre-formulaire">Ajouter un membre</div>
         <div class="card">
+          <label class="field-label">Prénom</label>
+          <input type="text" id="bureau-prenom" placeholder="">
           <label class="field-label">Nom</label>
           <input type="text" id="bureau-nom" placeholder="">
           <label class="field-label">Fonction</label>
@@ -2847,6 +2849,19 @@ function sauvegarderBureau() {
 
 let bureauEditIndex = null;
 
+// Nom complet affiché "Prénom NOM" — compatible avec les membres saisis
+// avant la séparation des deux champs (qui n'ont qu'un champ "nom" unique).
+function nomCompletMembreBureau(m) {
+  if (m.prenom) return m.prenom + ' ' + (m.nom || '');
+  return m.nom || '';
+}
+// Prénom seul pour l'affichage "(Charlotte)" à côté d'un numéro de
+// téléphone — repli sur l'ancienne détection si le membre n'a qu'un champ
+// "nom" unique (saisi avant la séparation des deux champs).
+function prenomMembreBureau(m) {
+  return m.prenom || extrairePrenom(m.nom);
+}
+
 function renderBureauListe() {
   const el = $('bureau-liste');
   el.innerHTML = '';
@@ -2858,7 +2873,7 @@ function renderBureauListe() {
     const carte = document.createElement('div');
     carte.className = 'recurrente-carte';
     carte.innerHTML =
-      '<div style="min-width:0;"><div style="font-weight:600;">' + escHtml(m.nom) + '</div>' +
+      '<div style="min-width:0;"><div style="font-weight:600;">' + escHtml(nomCompletMembreBureau(m)) + '</div>' +
       '<div class="tx-meta">' + escHtml(m.fonction || '') + (m.telephone ? ' · ' + escHtml(m.telephone) : '') + '</div>' +
       '<div class="tx-meta">' + (badges || 'N\'apparaît sur aucun document') + '</div></div>' +
       '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
@@ -2873,7 +2888,7 @@ $('bureau-liste').addEventListener('click', function(e){
   if (!btn) return;
   const index = parseInt(btn.dataset.index, 10);
   if (btn.dataset.action === 'supprimer') {
-    if (!confirm('Retirer "' + state.bureau[index].nom + '" du bureau ?')) return;
+    if (!confirm('Retirer "' + nomCompletMembreBureau(state.bureau[index]) + '" du bureau ?')) return;
     state.bureau.splice(index, 1);
     if (bureauEditIndex === index) annulerEditionBureau();
     renderBureauListe();
@@ -2881,7 +2896,10 @@ $('bureau-liste').addEventListener('click', function(e){
   } else if (btn.dataset.action === 'modifier') {
     const m = state.bureau[index];
     bureauEditIndex = index;
-    $('bureau-nom').value = m.nom || '';
+    // Repli : si le membre n'a qu'un champ "nom" unique (ancienne saisie),
+    // on tente de le répartir proprement entre prénom et nom à l'édition.
+    $('bureau-prenom').value = m.prenom || prenomMembreBureau(m);
+    $('bureau-nom').value = m.nom && m.prenom ? m.nom : (m.nom || '').replace(prenomMembreBureau(m), '').trim();
     $('bureau-fonction').value = m.fonction || '';
     $('bureau-telephone').value = m.telephone || '';
     $('bureau-sur-contrat').checked = m.surContrat !== false;
@@ -2889,13 +2907,13 @@ $('bureau-liste').addEventListener('click', function(e){
     $('bureau-titre-formulaire').textContent = 'Modifier ce membre';
     $('btn-bureau-ajouter').textContent = '💾 Enregistrer les modifications';
     $('btn-bureau-annuler').classList.remove('hidden');
-    $('bureau-nom').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('bureau-prenom').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 });
 
 function annulerEditionBureau() {
   bureauEditIndex = null;
-  $('bureau-nom').value = ''; $('bureau-fonction').value = ''; $('bureau-telephone').value = '';
+  $('bureau-prenom').value = ''; $('bureau-nom').value = ''; $('bureau-fonction').value = ''; $('bureau-telephone').value = '';
   $('bureau-sur-contrat').checked = true; $('bureau-sur-facture').checked = true;
   $('bureau-titre-formulaire').textContent = 'Ajouter un membre';
   $('btn-bureau-ajouter').textContent = '＋ Ajouter';
@@ -2904,13 +2922,14 @@ function annulerEditionBureau() {
 $('btn-bureau-annuler').addEventListener('click', annulerEditionBureau);
 
 $('btn-bureau-ajouter').addEventListener('click', function(){
+  const prenom = $('bureau-prenom').value.trim();
   const nom = $('bureau-nom').value.trim();
   const fonction = $('bureau-fonction').value.trim();
   const telephone = $('bureau-telephone').value.trim();
   const surContrat = $('bureau-sur-contrat').checked;
   const surFacture = $('bureau-sur-facture').checked;
-  if (!nom) { toast('Le nom est obligatoire.'); return; }
-  const membre = { nom: nom, fonction: fonction, telephone: telephone, surContrat: surContrat, surFacture: surFacture };
+  if (!prenom && !nom) { toast('Le nom est obligatoire.'); return; }
+  const membre = { prenom: prenom, nom: nom, fonction: fonction, telephone: telephone, surContrat: surContrat, surFacture: surFacture };
   if (bureauEditIndex !== null) {
     state.bureau[bureauEditIndex] = membre;
   } else {
@@ -3410,6 +3429,17 @@ function genererDocxContrat(c, contrat) {
 // n'a pas encore été renseigné, pour ne jamais casser un contrat existant).
 // pourDocument : 'contrat' ou 'facture' — ne retient que les membres du
 // bureau cochés pour apparaître sur ce type de document en particulier.
+// Extrait le prénom d'un nom complet, quel que soit l'ordre de saisie
+// ("Charlotte PICOT" ou "PICOT Charlotte") — le mot tout en majuscules est
+// pris pour le nom de famille (convention administrative française), l'autre
+// pour le prénom.
+function extrairePrenom(nomComplet) {
+  const mots = String(nomComplet || '').trim().split(/\s+/).filter(Boolean);
+  if (mots.length <= 1) return mots[0] || '';
+  const nonMajuscule = mots.find(function(m){ return m !== m.toUpperCase(); });
+  return nonMajuscule || mots[0];
+}
+
 function texteRepresentantsAssociation(pourDocument) {
   const champFiltre = pourDocument === 'facture' ? 'surFacture' : 'surContrat';
   const membres = (state.bureau || []).filter(function(m){ return m[champFiltre] !== false; });
@@ -3422,10 +3452,10 @@ function texteRepresentantsAssociation(pourDocument) {
       signature: 'Charlotte PICOT et Louanne LACAULE - Coprésidentes'
     };
   }
-  const noms = membres.map(function(m){ return m.nom; }).join(' & ');
+  const noms = membres.map(function(m){ return nomCompletMembreBureau(m); }).join(' & ');
   const fonctions = Array.from(new Set(membres.map(function(m){ return m.fonction; }).filter(Boolean)));
   const telephones = membres.filter(function(m){ return m.telephone; })
-    .map(function(m){ return m.telephone + ' (' + m.nom.split(' ')[0] + ')'; }).join(' ou ');
+    .map(function(m){ return m.telephone + ' (' + prenomMembreBureau(m) + ')'; }).join(' ou ');
   return {
     noms: noms,
     fonction: (fonctions.length ? fonctions.join(' / ') : 'Représentant(e)') + ' de l\u2019association Banda Esperanza',

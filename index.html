@@ -820,7 +820,14 @@
           <input type="text" id="bureau-fonction" placeholder="Ex. Co-présidente">
           <label class="field-label">Téléphone</label>
           <input type="tel" inputmode="tel" id="bureau-telephone" placeholder="06 03 75 45 50">
-          <button class="btn btn-primary" id="btn-bureau-ajouter" style="margin-top:12px;">＋ Ajouter</button>
+          <label class="field-label" style="margin-top:14px;">Apparaît dans</label>
+          <label style="display:flex; align-items:center; gap:8px; margin-top:8px; cursor:pointer;">
+            <input type="checkbox" id="bureau-sur-contrat" checked style="width:auto;"> Les contrats
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; margin-top:8px; cursor:pointer;">
+            <input type="checkbox" id="bureau-sur-facture" checked style="width:auto;"> Les factures
+          </label>
+          <button class="btn btn-primary" id="btn-bureau-ajouter" style="margin-top:14px;">＋ Ajouter</button>
         </div>
       </div>
     </section>
@@ -2840,11 +2847,15 @@ function renderBureauListe() {
   el.innerHTML = '';
   $('bureau-empty').classList.toggle('hidden', state.bureau.length > 0);
   state.bureau.forEach(function(m, index){
+    const surContrat = m.surContrat !== false;
+    const surFacture = m.surFacture !== false;
+    const badges = (surContrat ? '📄 Contrats ' : '') + (surFacture ? '🧾 Factures' : '');
     const carte = document.createElement('div');
     carte.className = 'recurrente-carte';
     carte.innerHTML =
       '<div style="min-width:0;"><div style="font-weight:600;">' + escHtml(m.nom) + '</div>' +
-      '<div class="tx-meta">' + escHtml(m.fonction || '') + (m.telephone ? ' · ' + escHtml(m.telephone) : '') + '</div></div>' +
+      '<div class="tx-meta">' + escHtml(m.fonction || '') + (m.telephone ? ' · ' + escHtml(m.telephone) : '') + '</div>' +
+      '<div class="tx-meta">' + (badges || 'N\'apparaît sur aucun document') + '</div></div>' +
       '<button class="btn btn-ghost" style="width:auto; padding:6px 10px; color:var(--stamp); border-color:var(--stamp); flex-shrink:0;" data-action="supprimer" data-index="' + index + '">🗑</button>';
     el.appendChild(carte);
   });
@@ -2862,12 +2873,15 @@ $('btn-bureau-ajouter').addEventListener('click', function(){
   const nom = $('bureau-nom').value.trim();
   const fonction = $('bureau-fonction').value.trim();
   const telephone = $('bureau-telephone').value.trim();
+  const surContrat = $('bureau-sur-contrat').checked;
+  const surFacture = $('bureau-sur-facture').checked;
   if (!nom) { toast('Le nom est obligatoire.'); return; }
-  state.bureau.push({ nom: nom, fonction: fonction, telephone: telephone });
+  state.bureau.push({ nom: nom, fonction: fonction, telephone: telephone, surContrat: surContrat, surFacture: surFacture });
   renderBureauListe();
   sauvegarderBureau().then(function(){
     toast('Membre ajouté.');
     $('bureau-nom').value = ''; $('bureau-fonction').value = ''; $('bureau-telephone').value = '';
+    $('bureau-sur-contrat').checked = true; $('bureau-sur-facture').checked = true;
   }).catch(function(err){ toast('Erreur : ' + err.message); });
 });
 
@@ -3356,8 +3370,13 @@ function genererDocxContrat(c, contrat) {
 // Construit les textes des représentants de l'association à partir du
 // bureau configuré en Admin (repli sur les valeurs historiques si le bureau
 // n'a pas encore été renseigné, pour ne jamais casser un contrat existant).
-function texteRepresentantsAssociation() {
-  if (!state.bureau || state.bureau.length === 0) {
+// pourDocument : 'contrat' ou 'facture' — ne retient que les membres du
+// bureau cochés pour apparaître sur ce type de document en particulier.
+function texteRepresentantsAssociation(pourDocument) {
+  const champFiltre = pourDocument === 'facture' ? 'surFacture' : 'surContrat';
+  const membres = (state.bureau || []).filter(function(m){ return m[champFiltre] !== false; });
+
+  if (membres.length === 0) {
     return {
       noms: 'Mme PICOT Charlotte & Mme LACAULE Louanne',
       fonction: 'Co-présidente et représentante de l\u2019association Banda Esperanza',
@@ -3365,9 +3384,9 @@ function texteRepresentantsAssociation() {
       signature: 'Charlotte PICOT et Louanne LACAULE - Coprésidentes'
     };
   }
-  const noms = state.bureau.map(function(m){ return m.nom; }).join(' & ');
-  const fonctions = Array.from(new Set(state.bureau.map(function(m){ return m.fonction; }).filter(Boolean)));
-  const telephones = state.bureau.filter(function(m){ return m.telephone; })
+  const noms = membres.map(function(m){ return m.nom; }).join(' & ');
+  const fonctions = Array.from(new Set(membres.map(function(m){ return m.fonction; }).filter(Boolean)));
+  const telephones = membres.filter(function(m){ return m.telephone; })
     .map(function(m){ return m.telephone + ' (' + m.nom.split(' ')[0] + ')'; }).join(' ou ');
   return {
     noms: noms,
@@ -3385,7 +3404,7 @@ function genererPdfContrat(c, contrat) {
       const margeG = 18, margeD = 192;
       let y = 16;
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
-      const representants = texteRepresentantsAssociation();
+      const representants = texteRepresentantsAssociation('contrat');
 
       doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
       doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);
@@ -3525,7 +3544,7 @@ function genererPdfFacture(c, contrat, numeroFacture) {
       const margeG = 18, margeD = 192;
       let y = 16;
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
-      const representants = texteRepresentantsAssociation();
+      const representants = texteRepresentantsAssociation('facture');
 
       doc.addImage(logoDataUrl, 'PNG', margeG, y, 20, 20);
       doc.setDrawColor(26, 23, 64); doc.setLineWidth(0.3);

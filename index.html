@@ -2823,6 +2823,38 @@ function renderHistoriqueContrats(clientId) {
   liste.forEach(function(c){ el.appendChild(construireLigneContrat(c, false)); });
 }
 
+// Certaines écritures Firestore peuvent rester "en attente" indéfiniment
+// (bug connu du SDK avec la persistance hors-ligne activée : ni succès ni
+// erreur ne remontent). On retente automatiquement si ça traîne trop,
+// plutôt que de laisser l'utilisateur relancer l'action à la main.
+function firestoreAvecRetentative(operation, tentativesRestantes, delaiMs) {
+  tentativesRestantes = tentativesRestantes === undefined ? 2 : tentativesRestantes;
+  delaiMs = delaiMs || 4000;
+  return new Promise(function(resolve, reject){
+    let reglee = false;
+    const minuteur = setTimeout(function(){
+      if (reglee) return;
+      reglee = true;
+      if (tentativesRestantes > 0) {
+        firestoreAvecRetentative(operation, tentativesRestantes - 1, delaiMs).then(resolve, reject);
+      } else {
+        reject(new Error('Le serveur ne répond pas, réessaie dans un instant.'));
+      }
+    }, delaiMs);
+    operation().then(function(res){
+      if (reglee) return;
+      reglee = true;
+      clearTimeout(minuteur);
+      resolve(res);
+    }, function(err){
+      if (reglee) return;
+      reglee = true;
+      clearTimeout(minuteur);
+      reject(err);
+    });
+  });
+}
+
 // Supprime le contrat : affichage mis à jour TOUT DE SUITE, sans attendre
 // la résolution de la promesse Firestore (celle-ci peut mettre du temps, ou
 // même rester en attente un moment — comportement connu du SDK Firestore
@@ -2837,14 +2869,15 @@ function supprimerContratAvecRafraichissementImmediat(contrat) {
   }
   toast('Contrat supprimé.');
 
-  fbDb.collection('contrats').doc(contrat.id).delete().catch(function(err){
-    toast('Erreur, le contrat n\'a pas pu être supprimé : ' + err.message);
-    state.contrats.push(contrat);
-    if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
-    if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
-      renderHistoriqueContrats(state.clientModalId);
-    }
-  });
+  firestoreAvecRetentative(function(){ return fbDb.collection('contrats').doc(contrat.id).delete(); })
+    .catch(function(err){
+      toast('Erreur, le contrat n\'a pas pu être supprimé : ' + err.message);
+      state.contrats.push(contrat);
+      if (document.getElementById('view-contrats').classList.contains('active')) renderContratsListe();
+      if (state.clientModalId && !$('client-modal-backdrop').classList.contains('hidden')) {
+        renderHistoriqueContrats(state.clientModalId);
+      }
+    });
 }
 
 $('client-historique-contrats').addEventListener('click', function(e){

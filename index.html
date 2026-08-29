@@ -3655,15 +3655,16 @@ function facturerContrat(contrat) {
 
       const total = (Number(contrat.montant) || 0) + (Number(contrat.fraisTransport) || 0);
       const sousActivite = contrat.intitule || c.nom;
-      garantirSousActiviteContrats(sousActivite).catch(function(err){
-        console.warn('Ajout sous-activité "Contrats" échoué :', err);
-      });
       fbDb.collection('recurrentes').add({
         type: 'recette', frequence: 'ponctuelle', date: contrat.date,
         montant: total, activite: 'Contrats', sousActivite: sousActivite,
         moyenPaiement: 'Virement',
         libelle: 'Facture ' + numeroFacture + ' (contrat ' + contrat.numero + ') - ' + c.nom,
-        actif: true, forcerAffichage: false, traite: false, derniereValidation: null,
+        // forcerAffichage: true — une facture émise doit apparaître tout de
+        // suite dans le rappel de l'Accueil, sans attendre la date de la
+        // représentation (contrairement aux récurrentes classiques qui,
+        // elles, n'apparaissent qu'à partir de leur date/jour prévu).
+        actif: true, forcerAffichage: true, traite: false, derniereValidation: null,
         contratId: contrat.id, numeroFacture: numeroFacture,
         creeParUid: state.user.uid, creeParEmail: state.user.email,
         creeLe: firebase.firestore.FieldValue.serverTimestamp()

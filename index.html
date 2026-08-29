@@ -589,6 +589,10 @@
     </div>
   </header>
 
+  <div id="bandeau-hors-ligne" class="hidden" style="background:var(--stamp); color:#fff; text-align:center; padding:8px 12px; font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600;">
+    📡 Hors ligne — les actions ne seront pas prises en compte tant que la connexion n'est pas revenue.
+  </div>
+
   <main>
     <!-- ---------- Accueil / Tableau de bord ---------- -->
     <section id="view-dashboard" class="view active">
@@ -1267,11 +1271,21 @@ fbAuth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(function(err
   console.warn('Persistance de session non appliquée :', err);
 });
 
-// Persistance offline : les écritures faites hors-ligne sont mises en
-// file d'attente et synchronisées automatiquement au retour du réseau.
-fbDb.enablePersistence({ synchronizeTabs: true }).catch(function(err){
-  console.warn('Persistance Firestore indisponible :', err.code);
+// Persistance hors-ligne DÉSACTIVÉE volontairement : le SDK Firestore a un
+// comportement documenté et instable avec cette option (écritures qui
+// restent bloquées en attente sans jamais confirmer ni échouer, notamment
+// avec plusieurs onglets/instances ouvertes). L'app fonctionne donc en
+// ligne en permanence — un indicateur prévient clairement en cas de perte
+// de réseau plutôt que de risquer un blocage silencieux.
+function majBandeauHorsLigne() {
+  $('bandeau-hors-ligne').classList.toggle('hidden', navigator.onLine);
+}
+window.addEventListener('online', function(){
+  majBandeauHorsLigne();
+  toast('Connexion rétablie.');
 });
+window.addEventListener('offline', majBandeauHorsLigne);
+majBandeauHorsLigne();
 
 /* ============================================================
    ETAT GLOBAL

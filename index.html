@@ -4085,8 +4085,43 @@ function renderTransferts() {
     ligne.innerHTML =
       '<div><div>' + escHtml(nomCompte(tr.depuis)) + ' → ' + escHtml(nomCompte(tr.vers)) + '</div>' +
       '<div class="tx-meta">' + formatDateShort(tr.date) + (tr.note ? ' · ' + escHtml(tr.note) : '') + '</div></div>' +
-      '<div style="font-family:\'IBM Plex Mono\', monospace; font-weight:600;">' + formatMoney(tr.montant) + '</div>';
+      '<div style="display:flex; align-items:center; gap:8px;">' +
+        '<span style="font-family:\'IBM Plex Mono\', monospace; font-weight:600;">' + formatMoney(tr.montant) + '</span>' +
+        (state.role === 'admin' ? '<button class="btn btn-ghost" style="width:auto; padding:6px 9px; color:var(--stamp); border-color:var(--stamp);" data-action="annuler-transfert" data-id="' + tr.id + '" title="Annuler ce transfert">🗑</button>' : '') +
+      '</div>';
     el.appendChild(ligne);
+  });
+}
+$('transferts-liste').addEventListener('click', function(e){
+  const btn = e.target.closest('button[data-action="annuler-transfert"]');
+  if (!btn) return;
+  const tr = state.transferts.find(function(t){ return t.id === btn.dataset.id; });
+  if (!tr) return;
+  annulerTransfert(tr);
+});
+
+// Annule un transfert : supprime la ligne ET remet le solde des comptes
+// manuels (livrets/compte titre) exactement comme avant — l'ajustement
+// inverse de celui fait à la création (le compte courant, lui, est
+// recalculé automatiquement puisque son solde n'est jamais stocké en dur).
+function annulerTransfert(tr) {
+  if (!confirm('Annuler ce transfert de ' + formatMoney(tr.montant) + ' (' + nomCompte(tr.depuis) + ' → ' + nomCompte(tr.vers) + ') du ' + formatDateShort(tr.date) + ' ?')) return;
+
+  const compteDepuis = COMPTES_DEFINITION.find(function(c){ return c.id === tr.depuis; });
+  const compteVers = COMPTES_DEFINITION.find(function(c){ return c.id === tr.vers; });
+  const majComptes = {};
+  if (compteDepuis && compteDepuis.manuel) majComptes[tr.depuis] = (Number(state.comptesBancaires[tr.depuis]) || 0) + Number(tr.montant);
+  if (compteVers && compteVers.manuel) majComptes[tr.vers] = (Number(state.comptesBancaires[tr.vers]) || 0) - Number(tr.montant);
+
+  const lot = fbDb.batch();
+  lot.delete(fbDb.collection('transferts').doc(tr.id));
+  if (Object.keys(majComptes).length > 0) {
+    lot.set(fbDb.collection('config').doc('comptesBancaires'), majComptes, { merge: true });
+  }
+  lot.commit().then(function(){
+    toast('Transfert annulé.');
+  }).catch(function(err){
+    toast('Erreur : ' + err.message);
   });
 }
 

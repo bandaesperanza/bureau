@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="theme-color" content="#15122E">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Banda Esperanza">
 <title>Trésorerie — Banda Esperanza</title>
 <link rel="manifest" href="./manifest.json">
@@ -107,29 +107,23 @@
     position: relative; /* ancre pour le bouton + flottant, sans utiliser "fixed" */
   }
 
-  /* ---------- Correctif zone encoche/dynamic island (iOS 18) ----------
-     Sur iOS 18, la zone sous l'encoche affiche un flou "verre dépoli" qui
-     capture ce qu'il y a en dessous. Si cette zone laisse transparaître la
-     jonction entre le fond clair de la page et le dégradé sombre de l'en-tête,
-     le flou produit une bande floue disgracieuse. On peint donc explicitement
-     cette bande avec le même dégradé que l'en-tête, en amont de tout le reste
-     (position fixed, tout en haut), pour qu'il n'y ait plus que du navy à flouter. */
-  @supports (padding: max(0px)) {
-    body:has(#app-shell:not(.hidden))::before {
-      content: '';
-      position: fixed; top: 0; left: 0; right: 0;
-      height: env(safe-area-inset-top);
-      background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
-      z-index: 1000;
-      pointer-events: none;
-    }
-  }
 
-  /* ---------- En-tête ---------- */
+  /* ---------- En-tête : carte flottante "verre" détachée des bords ----------
+     Plutôt qu'un bandeau navy collé au bord qui accroche mal avec l'effet de
+     transparence système (Liquid Glass, iOS 26+), l'en-tête est ici une carte
+     arrondie détachée, avec un flou translucide — dans le même esprit que
+     les propres contrôles flottants d'iOS, au lieu de lutter contre eux. Le
+     fond de la page (thème clair/sombre) montre naturellement sous l'encoche,
+     plus besoin de peindre cette zone à la main. */
   header.app-header {
-    background: linear-gradient(135deg, #2A2560 0%, #15122E 100%);
+    background: linear-gradient(135deg, rgba(42,37,96,0.90) 0%, rgba(21,18,46,0.90) 100%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    backdrop-filter: blur(22px) saturate(180%);
     color: #F5F2EF;
-    padding: calc(18px + env(safe-area-inset-top)) 18px 14px;
+    margin: calc(env(safe-area-inset-top) + 10px) 12px 0;
+    padding: 16px 16px 14px;
+    border-radius: 22px;
+    box-shadow: 0 10px 28px rgba(21,18,46,0.20);
     flex-shrink: 0;
   }
   .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -153,7 +147,7 @@
   nav.tabbar {
     flex-shrink: 0;
     display: flex; background: var(--card); border-top: 1px solid var(--rule);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: max(env(safe-area-inset-bottom), 20px);
     box-shadow: 0 -2px 10px rgba(32,29,61,0.06);
   }
   /* Dans Safari "onglet classique" (pas encore installée sur l'écran
@@ -161,14 +155,15 @@
      que "safe-area-inset-bottom" en tienne compte — on ajoute une marge
      de sécurité supplémentaire dans ce cas précis uniquement. */
   @media not all and (display-mode: standalone) {
-    nav.tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + 54px); }
+    nav.tabbar { padding-bottom: calc(max(env(safe-area-inset-bottom), 20px) + 54px); }
   }
   .tab-btn {
-    flex: 1; min-width: 0; background: none; border: none; padding: 9px 2px 7px;
+    flex: 1; min-width: 0; background: none; border: none; padding: 10px 2px 8px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
     color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; font-size: 10px;
     letter-spacing: 0.01em; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-height: 46px;
   }
   .tab-btn .tab-icon {
     font-size: 19px; line-height: 1; height: 22px;

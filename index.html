@@ -33,6 +33,29 @@
 })();
 </script>
 
+<!-- Hauteur d'écran réelle calculée en JS plutôt que confiée à 100dvh/100vh :
+     ces unités CSS se sont montrées peu fiables dans ce contexte précis
+     (app installée sur l'écran d'accueil iOS) — la barre du bas se
+     retrouvait hors de vue tant qu'on n'avait pas fait défiler la page.
+     window.innerHeight, lui, reflète toujours la zone réellement visible. -->
+<script>
+(function(){
+  function majHauteurReelle() {
+    document.documentElement.style.setProperty('--vh-reel', (window.innerHeight * 0.01) + 'px');
+  }
+  majHauteurReelle();
+  window.addEventListener('resize', majHauteurReelle);
+  window.addEventListener('orientationchange', majHauteurReelle);
+  // iOS ne redéclenche pas toujours "resize" à temps sur l'apparition/
+  // disparition de bandeaux système (appel en cours, enregistrement
+  // d'écran...) — un second recalcul un instant après rattrape ce cas.
+  window.addEventListener('pageshow', function(){ setTimeout(majHauteurReelle, 300); });
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) setTimeout(majHauteurReelle, 300);
+  });
+})();
+</script>
+
 <!-- Firebase (compat SDK, cohérent avec la partothèque) -->
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
@@ -103,6 +126,7 @@
   #app-shell {
     display: flex; flex-direction: column;
     height: 100dvh; height: 100vh; /* repli pour les navigateurs sans dvh */
+    height: calc(var(--vh-reel, 1vh) * 100); /* voir script de calcul plus bas — le plus fiable des trois */
     overflow: hidden;
     position: relative; /* ancre pour le bouton + flottant, sans utiliser "fixed" */
   }

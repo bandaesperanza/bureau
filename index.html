@@ -4841,27 +4841,38 @@ function ensureDriveConnecte() {
   if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
     return Promise.resolve(false);
   }
-  return new Promise(function(resolve){
-    try {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: DRIVE_SCOPE,
-        callback: function(resp){
-          if (resp && resp.access_token) {
-            state.driveAccessToken = resp.access_token;
-            state.driveTokenExpiry = Date.now() + ((resp.expires_in || 3300) * 1000);
-            resolve(true);
-          } else {
-            resolve(false);
-          }
-        },
-        error_callback: function(){ resolve(false); }
-      });
-      client.requestAccessToken({ prompt: '' });
-    } catch (e) {
-      console.error('Init Drive OAuth :', e);
-      resolve(false);
-    }
+  function demanderToken(interactif) {
+    return new Promise(function(resolve){
+      try {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: DRIVE_SCOPE,
+          callback: function(resp){
+            if (resp && resp.access_token) {
+              state.driveAccessToken = resp.access_token;
+              state.driveTokenExpiry = Date.now() + ((resp.expires_in || 3300) * 1000);
+              resolve(true);
+            } else {
+              resolve(false);
+            }
+          },
+          error_callback: function(){ resolve(false); }
+        });
+        // D'abord une tentative silencieuse (prompt:'') : si une session Google
+        // est déjà active et le consentement déjà donné, ça marche sans rien
+        // afficher. Si ça échoue (pas de session, consentement révoqué, etc.),
+        // on retente juste après en mode interactif (sans prompt:'') pour que
+        // Google affiche la popup de connexion — comme avant.
+        client.requestAccessToken(interactif ? {} : { prompt: '' });
+      } catch (e) {
+        console.error('Init Drive OAuth :', e);
+        resolve(false);
+      }
+    });
+  }
+  return demanderToken(false).then(function(ok){
+    if (ok) return true;
+    return demanderToken(true);
   });
 }
 

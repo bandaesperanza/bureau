@@ -4556,7 +4556,7 @@ function exporterBilanAnnuel(format) {
   // utilisateur encore valide) — le PDF charge 2 scripts + le logo en
   // asynchrone ensuite, ce qui périme le geste si Drive n'est pas déjà connecté.
   ensureDriveConnecte().then(function(ok){
-    if (!ok) throw new Error('Connexion Drive nécessaire.');
+    if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Préparation…';
     return format === 'xlsx'
       ? chargerLibExcelJS().then(function(){ return genererExcelBilanAnnuel(data); })
@@ -4838,41 +4838,45 @@ function ensureDriveConnecte() {
   if (state.driveAccessToken && now < state.driveTokenExpiry - 30000) {
     return Promise.resolve(true);
   }
+  state.driveLastError = null;
   if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+    state.driveLastError = 'bibliothèque Google non chargée (script.google.com bloqué ?)';
     return Promise.resolve(false);
   }
-  function demanderToken(interactif) {
-    return new Promise(function(resolve){
-      try {
-        const client = google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: DRIVE_SCOPE,
-          callback: function(resp){
-            if (resp && resp.access_token) {
-              state.driveAccessToken = resp.access_token;
-              state.driveTokenExpiry = Date.now() + ((resp.expires_in || 3300) * 1000);
-              resolve(true);
-            } else {
-              resolve(false);
-            }
-          },
-          error_callback: function(){ resolve(false); }
-        });
-        // D'abord une tentative silencieuse (prompt:'') : si une session Google
-        // est déjà active et le consentement déjà donné, ça marche sans rien
-        // afficher. Si ça échoue (pas de session, consentement révoqué, etc.),
-        // on retente juste après en mode interactif (sans prompt:'') pour que
-        // Google affiche la popup de connexion — comme avant.
-        client.requestAccessToken(interactif ? {} : { prompt: '' });
-      } catch (e) {
-        console.error('Init Drive OAuth :', e);
-        resolve(false);
-      }
-    });
-  }
-  return demanderToken(false).then(function(ok){
-    if (ok) return true;
-    return demanderToken(true);
+  return new Promise(function(resolve){
+    try {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: function(resp){
+          if (resp && resp.access_token) {
+            state.driveAccessToken = resp.access_token;
+            state.driveTokenExpiry = Date.now() + ((resp.expires_in || 3300) * 1000);
+            resolve(true);
+          } else {
+            state.driveLastError = (resp && (resp.error_description || resp.error)) || 'réponse Google sans jeton';
+            console.error('Drive OAuth — pas de jeton :', resp);
+            resolve(false);
+          }
+        },
+        error_callback: function(err){
+          state.driveLastError = (err && (err.message || err.type)) || 'erreur inconnue';
+          console.error('Drive OAuth — error_callback :', err);
+          resolve(false);
+        }
+      });
+      // Un seul appel, SANS prompt:'' : Google décide lui-même — silencieux si
+      // une session/consentement valide existe déjà, sinon il affiche sa popup
+      // de connexion (comportement d'origine). On appelle ça tout de suite,
+      // pendant que le geste utilisateur du clic est encore valide : un
+      // deuxième appel différé (après un premier essai silencieux qui échoue)
+      // arrive trop tard et le navigateur bloque alors la popup.
+      client.requestAccessToken();
+    } catch (e) {
+      state.driveLastError = e && e.message;
+      console.error('Init Drive OAuth :', e);
+      resolve(false);
+    }
   });
 }
 
@@ -5097,7 +5101,7 @@ function synchroniserPhotosEnAttente() {
       const items = ev.target.result || [];
       if (items.length === 0) { toast('Rien à synchroniser.'); return; }
       ensureDriveConnecte().then(function(ok){
-        if (!ok) { toast('Connexion Drive nécessaire pour synchroniser.'); return; }
+        if (!ok) { toast('Connexion Drive nécessaire pour synchroniser.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : '')); return; }
         let done = 0;
         items.forEach(function(item){
           uploaderFactureDrive(item.blob, item.nomFichier, item.type, item.activite, item.sousActivite, item.date, item.libelle, item.numero)
@@ -5254,7 +5258,7 @@ function gererAjoutJustificatifModal(e) {
   // Drive doit être sollicité tout de suite, pendant que le geste utilisateur
   // (le choix du fichier) est encore valide, sinon la popup Google échoue.
   ensureDriveConnecte().then(function(ok){
-    if (!ok) throw new Error('Connexion Drive nécessaire.');
+    if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Envoi du justificatif…';
     return uploaderFactureDrive(file, file.name || 'justificatif.jpg', tx.type, tx.activite, tx.sousActivite, tx.date, tx.libelle, tx.numero);
   }).then(function(res){
@@ -5460,7 +5464,7 @@ $('btn-export-grandlivre').addEventListener('click', function(){
   // utilisateur encore valide) — sinon, après le chargement asynchrone de la
   // librairie Excel, le geste est "périmé" et la popup Google échoue.
   ensureDriveConnecte().then(function(ok){
-    if (!ok) throw new Error('Connexion Drive nécessaire.');
+    if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Préparation…';
     return chargerLibExcelJS().then(function(){
       return genererExcelGrandLivre(annee, lignesTx);
@@ -5627,7 +5631,7 @@ $('btn-lancer-annee').addEventListener('click', function(){
   btn.textContent = 'Connexion Drive…';
 
   ensureDriveConnecte().then(function(ok){
-    if (!ok) { toast('Connexion Drive nécessaire.'); return Promise.reject(new Error('ANNULE')); }
+    if (!ok) { toast('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : '')); return Promise.reject(new Error('ANNULE')); }
     btn.textContent = 'Création en cours…';
     return trouverOuCreerDossier(annee, DRIVE_RACINE_ID);
   }).then(function(anneeId){

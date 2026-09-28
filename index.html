@@ -1312,6 +1312,10 @@ const firebaseConfig = {
 // Client ID OAuth Google (Google Cloud Console > Identifiants > ID client OAuth > Application Web)
 const GOOGLE_CLIENT_ID = "472267731196-4nfruaevj9as7ck5a5pbu7icoftvmfvr.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+// Adresse de l'app, DOIT être ajoutée telle quelle dans Google Cloud Console
+// (Identifiants > ce client OAuth > "URI de redirection autorisés"), sinon
+// Google refuse la redirection avec "redirect_uri_mismatch".
+const DRIVE_REDIRECT_URI = "https://bandaesperanza.github.io/bureau/";
 // Dossier "03 - Trésorerie" existant, partagé (d'où le resourcekey dans son URL) —
 // on cible son ID directement plutôt que de chercher par nom, sinon un doublon
 // est créé chez chaque compte Google qui n'en est pas le propriétaire.
@@ -1396,6 +1400,43 @@ const state = {
 state.resourceKeys[DRIVE_RACINE_ID] = DRIVE_RACINE_RESOURCE_KEY;
 
 let unsubTx = null, unsubUsers = null, unsubComptes = null, unsubTransferts = null, unsubRecurrentes = null, unsubClients = null, unsubContrats = null, unsubBureau = null;
+
+/* ============================================================
+   GOOGLE DRIVE — récupération du jeton au retour de connexion
+   ============================================================
+   La connexion Drive se fait par redirection complète (pas par popup : une
+   popup Google, dans une app installée sur iPhone, s'ouvre parfois sans
+   jamais rendre la main à l'app ensuite, ce qui bloque tous les clics).
+   Au retour de chez Google, le jeton arrive dans le fragment d'URL
+   (#access_token=...) : on le récupère ici, tout en haut, avant le reste
+   de l'appli, puis on nettoie l'URL. On le garde aussi en localStorage
+   pour ne pas avoir à se reconnecter à chaque ouverture de l'app tant
+   qu'il est valide (~55 minutes). */
+(function recupererOuRestaurerJetonDrive(){
+  if (location.hash && location.hash.indexOf('access_token=') !== -1) {
+    const p = new URLSearchParams(location.hash.slice(1));
+    const token = p.get('access_token');
+    const expiresIn = parseInt(p.get('expires_in'), 10) || 3300;
+    if (token) {
+      state.driveAccessToken = token;
+      state.driveTokenExpiry = Date.now() + expiresIn * 1000;
+      try {
+        localStorage.setItem('tresorerie_drive_token', token);
+        localStorage.setItem('tresorerie_drive_token_expiry', String(state.driveTokenExpiry));
+      } catch (e) {}
+    }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  } else {
+    try {
+      const t = localStorage.getItem('tresorerie_drive_token');
+      const exp = parseInt(localStorage.getItem('tresorerie_drive_token_expiry'), 10);
+      if (t && exp && Date.now() < exp - 30000) {
+        state.driveAccessToken = t;
+        state.driveTokenExpiry = exp;
+      }
+    } catch (e) {}
+  }
+})();
 
 /* ============================================================
    UTILITAIRES
@@ -1736,6 +1777,9 @@ fbAuth.onAuthStateChanged(function(user){
         demarrerEcouteUtilisateurs();
         renderAdminActivites();
       }
+      // Si on revient d'une redirection de connexion Drive, reprend l'action
+      // qui avait été interrompue (voir ensureDriveConnecte plus bas).
+      reprendreActionDriveEnAttente();
     });
   });
 });
@@ -4552,10 +4596,7 @@ function exporterBilanAnnuel(format) {
   const statusEl = $('bilan-annuel-export-status');
   statusEl.textContent = 'Connexion Drive…';
 
-  // Connexion Drive déclenchée EN PREMIER, tout de suite au clic (geste
-  // utilisateur encore valide) — le PDF charge 2 scripts + le logo en
-  // asynchrone ensuite, ce qui périme le geste si Drive n'est pas déjà connecté.
-  ensureDriveConnecte().then(function(ok){
+  ensureDriveConnecte({ type: 'bilan', format: format, annee: annee }).then(function(ok){
     if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Préparation…';
     return format === 'xlsx'
@@ -4777,9 +4818,11 @@ function enregistrerTransaction() {
   const photoBlob = state.formPhotoBlob;
   const photoName = state.formPhotoName;
 
-  // On déclenche la connexion Drive tout de suite (geste utilisateur encore
-  // valide à ce stade) si une photo est présente et qu'aucun token valide n'existe.
-  const drivePromise = photoBlob ? ensureDriveConnecte() : Promise.resolve(false);
+  // On vérifie juste si Drive est déjà connecté, SANS rediriger : on ne veut
+  // pas faire quitter la page en pleine saisie. Si non connecté, la photo part
+  // dans la file d'attente locale (voir plus bas) pour être synchronisée
+  // plus tard via le bouton "Synchroniser".
+  const drivePromise = photoBlob ? driveDejaConnecte() : Promise.resolve(false);
 
   drivePromise.then(function(connecte){
     if (photoBlob && connecte) {
@@ -4832,52 +4875,92 @@ function enregistrerTransaction() {
 
 /* ============================================================
    GOOGLE DRIVE — connexion + upload des justificatifs
-   ============================================================ */
-function ensureDriveConnecte() {
-  const now = Date.now();
-  if (state.driveAccessToken && now < state.driveTokenExpiry - 30000) {
-    return Promise.resolve(true);
-  }
-  state.driveLastError = null;
-  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-    state.driveLastError = 'bibliothèque Google non chargée (script.google.com bloqué ?)';
-    return Promise.resolve(false);
-  }
-  return new Promise(function(resolve){
-    try {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: DRIVE_SCOPE,
-        callback: function(resp){
-          if (resp && resp.access_token) {
-            state.driveAccessToken = resp.access_token;
-            state.driveTokenExpiry = Date.now() + ((resp.expires_in || 3300) * 1000);
-            resolve(true);
-          } else {
-            state.driveLastError = (resp && (resp.error_description || resp.error)) || 'réponse Google sans jeton';
-            console.error('Drive OAuth — pas de jeton :', resp);
-            resolve(false);
-          }
-        },
-        error_callback: function(err){
-          state.driveLastError = (err && (err.message || err.type)) || 'erreur inconnue';
-          console.error('Drive OAuth — error_callback :', err);
-          resolve(false);
-        }
-      });
-      // Un seul appel, SANS prompt:'' : Google décide lui-même — silencieux si
-      // une session/consentement valide existe déjà, sinon il affiche sa popup
-      // de connexion (comportement d'origine). On appelle ça tout de suite,
-      // pendant que le geste utilisateur du clic est encore valide : un
-      // deuxième appel différé (après un premier essai silencieux qui échoue)
-      // arrive trop tard et le navigateur bloque alors la popup.
-      client.requestAccessToken();
-    } catch (e) {
-      state.driveLastError = e && e.message;
-      console.error('Init Drive OAuth :', e);
-      resolve(false);
-    }
+   ============================================================
+   Connexion par REDIRECTION complète (plus de popup) : dans une app
+   installée sur iPhone, la popup Google de connexion peut s'ouvrir, se
+   valider... et ne jamais rendre la main à l'app, qui reste alors
+   totalement bloquée (aucun clic ne répond). Une redirection classique
+   (on quitte la page, on revient dessus) est beaucoup plus fiable dans
+   ce contexte, au prix d'un aller-retour visible pour l'utilisateur. */
+
+function tokenDriveValide() {
+  return !!(state.driveAccessToken && Date.now() < state.driveTokenExpiry - 30000);
+}
+
+// Vérifie juste si Drive est déjà connecté, SANS JAMAIS rediriger. À utiliser
+// quand une redirection serait gênante (ex : au moment d'enregistrer une
+// transaction — on préfère mettre la photo en attente de synchronisation
+// plutôt que de faire quitter la page en pleine saisie).
+function driveDejaConnecte() {
+  return Promise.resolve(tokenDriveValide());
+}
+
+// Connexion Drive complète. Si un jeton valide est déjà en cache, résout
+// immédiatement (aucune redirection). Sinon, part vers la page de connexion
+// Google puis revient sur l'app avec le jeton dans l'URL (récupéré tout en
+// haut du fichier). `pendingAction`, si fourni, est mémorisé pour reprendre
+// l'action interrompue au retour (voir reprendreActionDriveEnAttente).
+function ensureDriveConnecte(pendingAction) {
+  if (tokenDriveValide()) return Promise.resolve(true);
+  try {
+    if (pendingAction) localStorage.setItem('tresorerie_drive_pending', JSON.stringify(pendingAction));
+    else localStorage.removeItem('tresorerie_drive_pending');
+  } catch (e) {}
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: DRIVE_REDIRECT_URI,
+    response_type: 'token',
+    scope: DRIVE_SCOPE,
+    include_granted_scopes: 'true'
   });
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+  // La page va se recharger avant que quoi que ce soit d'autre ne se passe :
+  // cette promesse ne se résout jamais, c'est volontaire.
+  return new Promise(function(){});
+}
+
+// Reprend, au retour de la connexion Drive, l'action qui avait dû être
+// interrompue pour rediriger vers Google. Appelée une fois l'app chargée
+// (utilisateur connecté, transactions en cours de chargement).
+function reprendreActionDriveEnAttente() {
+  let raw;
+  try { raw = localStorage.getItem('tresorerie_drive_pending'); } catch (e) { return; }
+  if (!raw) return;
+  try { localStorage.removeItem('tresorerie_drive_pending'); } catch (e) {}
+  if (!tokenDriveValide()) return; // la reconnexion n'a pas abouti
+  let action;
+  try { action = JSON.parse(raw); } catch (e) { return; }
+  if (!action || !action.type) return;
+
+  if (action.type === 'justificatif') {
+    // On ne peut pas rouvrir l'appareil photo tout seul (il faut un geste
+    // utilisateur) : on rouvre la fiche et on invite à retaper sur
+    // Photo/Galerie, qui cette fois ne redemandera rien.
+    const essayer = function(tentatives){
+      const tx = (state.transactions || []).find(function(t){ return t.id === action.txId; });
+      if (tx) {
+        ouvrirModalTransaction(tx);
+        toast('Connecté à Drive. Appuie à nouveau sur Photo ou Galerie pour choisir ta photo.');
+      } else if (tentatives > 0) {
+        setTimeout(function(){ essayer(tentatives - 1); }, 400);
+      }
+    };
+    essayer(10);
+  } else if (action.type === 'bilan') {
+    setTimeout(function(){
+      if (action.annee) $('bilan-annuel-annee').value = action.annee;
+      exporterBilanAnnuel(action.format);
+    }, 300);
+  } else if (action.type === 'grandlivre') {
+    setTimeout(function(){
+      if (action.annee) $('export-annee').value = action.annee;
+      $('btn-export-grandlivre').click();
+    }, 300);
+  } else if (action.type === 'lancerAnnee') {
+    toast('Connecté à Drive : relance "Lancer l\'année comptable" pour ' + action.annee + '.');
+  } else if (action.type === 'sync') {
+    setTimeout(function(){ synchroniserPhotosEnAttente(); }, 300);
+  }
 }
 
 function driveFetch(url, options, resourceKeyHeader) {
@@ -5100,7 +5183,7 @@ function synchroniserPhotosEnAttente() {
     txStore.getAll().onsuccess = function(ev){
       const items = ev.target.result || [];
       if (items.length === 0) { toast('Rien à synchroniser.'); return; }
-      ensureDriveConnecte().then(function(ok){
+      ensureDriveConnecte({ type: 'sync' }).then(function(ok){
         if (!ok) { toast('Connexion Drive nécessaire pour synchroniser.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : '')); return; }
         let done = 0;
         items.forEach(function(item){
@@ -5244,22 +5327,22 @@ $('modal-sousactivite').addEventListener('change', function(){
 
 // Ajout d'un justificatif après coup sur une transaction qui n'en a pas.
 //
-// Important (iOS/Safari en PWA installée) : ouvrir l'appareil photo ou la
-// galerie fait passer par une UI native, ce qui « périme » le geste utilisateur
-// initial. Si on ne sollicite Drive qu'après (dans le "change" une fois la
-// photo choisie), la popup Google échoue avec "Failed to open popup window".
-// On déclenche donc la connexion Drive tout de suite au clic sur 📷/🖼️,
-// AVANT d'ouvrir l'appareil photo/galerie, pendant que le geste est encore
-// valide — la connexion se fait en parallèle du choix de la photo.
-let driveConnectPourJustificatif = null;
-$('modal-btn-take-photo').addEventListener('click', function(){
-  driveConnectPourJustificatif = ensureDriveConnecte();
-  $('modal-input-photo-camera').click();
-});
-$('modal-btn-pick-photo').addEventListener('click', function(){
-  driveConnectPourJustificatif = ensureDriveConnecte();
-  $('modal-input-photo-gallery').click();
-});
+// Important (iOS/Safari en PWA installée) : si Drive n'est pas déjà connecté,
+// on ne doit PAS ouvrir l'appareil photo/galerie — on redirige d'abord vers
+// Google (voir ensureDriveConnecte), et on ne rouvrira le sélecteur qu'au
+// retour, une fois reconnecté (l'utilisateur retape sur Photo/Galerie).
+function declencherAjoutJustificatif(idInput) {
+  return function(){
+    const tx = modalTxCourante;
+    if (tokenDriveValide()) {
+      $(idInput).click();
+    } else {
+      ensureDriveConnecte(tx ? { type: 'justificatif', txId: tx.id } : null);
+    }
+  };
+}
+$('modal-btn-take-photo').addEventListener('click', declencherAjoutJustificatif('modal-input-photo-camera'));
+$('modal-btn-pick-photo').addEventListener('click', declencherAjoutJustificatif('modal-input-photo-gallery'));
 
 function gererAjoutJustificatifModal(e) {
   const file = e.target.files[0];
@@ -5270,9 +5353,7 @@ function gererAjoutJustificatifModal(e) {
   statusEl.textContent = 'Connexion Drive…';
   let resultatUpload = null;
 
-  const drivePromise = driveConnectPourJustificatif || ensureDriveConnecte();
-  driveConnectPourJustificatif = null;
-  drivePromise.then(function(ok){
+  ensureDriveConnecte({ type: 'justificatif', txId: tx.id }).then(function(ok){
     if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Envoi du justificatif…';
     return uploaderFactureDrive(file, file.name || 'justificatif.jpg', tx.type, tx.activite, tx.sousActivite, tx.date, tx.libelle, tx.numero);
@@ -5475,10 +5556,7 @@ $('btn-export-grandlivre').addEventListener('click', function(){
     return;
   }
 
-  // Connexion Drive déclenchée EN PREMIER, tout de suite au clic (geste
-  // utilisateur encore valide) — sinon, après le chargement asynchrone de la
-  // librairie Excel, le geste est "périmé" et la popup Google échoue.
-  ensureDriveConnecte().then(function(ok){
+  ensureDriveConnecte({ type: 'grandlivre', annee: annee }).then(function(ok){
     if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Préparation…';
     return chargerLibExcelJS().then(function(){
@@ -5645,7 +5723,7 @@ $('btn-lancer-annee').addEventListener('click', function(){
   btn.disabled = true;
   btn.textContent = 'Connexion Drive…';
 
-  ensureDriveConnecte().then(function(ok){
+  ensureDriveConnecte({ type: 'lancerAnnee', annee: annee }).then(function(ok){
     if (!ok) { toast('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : '')); return Promise.reject(new Error('ANNULE')); }
     btn.textContent = 'Création en cours…';
     return trouverOuCreerDossier(annee, DRIVE_RACINE_ID);

@@ -5243,8 +5243,23 @@ $('modal-sousactivite').addEventListener('change', function(){
 });
 
 // Ajout d'un justificatif après coup sur une transaction qui n'en a pas.
-$('modal-btn-take-photo').addEventListener('click', function(){ $('modal-input-photo-camera').click(); });
-$('modal-btn-pick-photo').addEventListener('click', function(){ $('modal-input-photo-gallery').click(); });
+//
+// Important (iOS/Safari en PWA installée) : ouvrir l'appareil photo ou la
+// galerie fait passer par une UI native, ce qui « périme » le geste utilisateur
+// initial. Si on ne sollicite Drive qu'après (dans le "change" une fois la
+// photo choisie), la popup Google échoue avec "Failed to open popup window".
+// On déclenche donc la connexion Drive tout de suite au clic sur 📷/🖼️,
+// AVANT d'ouvrir l'appareil photo/galerie, pendant que le geste est encore
+// valide — la connexion se fait en parallèle du choix de la photo.
+let driveConnectPourJustificatif = null;
+$('modal-btn-take-photo').addEventListener('click', function(){
+  driveConnectPourJustificatif = ensureDriveConnecte();
+  $('modal-input-photo-camera').click();
+});
+$('modal-btn-pick-photo').addEventListener('click', function(){
+  driveConnectPourJustificatif = ensureDriveConnecte();
+  $('modal-input-photo-gallery').click();
+});
 
 function gererAjoutJustificatifModal(e) {
   const file = e.target.files[0];
@@ -5255,9 +5270,9 @@ function gererAjoutJustificatifModal(e) {
   statusEl.textContent = 'Connexion Drive…';
   let resultatUpload = null;
 
-  // Drive doit être sollicité tout de suite, pendant que le geste utilisateur
-  // (le choix du fichier) est encore valide, sinon la popup Google échoue.
-  ensureDriveConnecte().then(function(ok){
+  const drivePromise = driveConnectPourJustificatif || ensureDriveConnecte();
+  driveConnectPourJustificatif = null;
+  drivePromise.then(function(ok){
     if (!ok) throw new Error('Connexion Drive nécessaire.' + (state.driveLastError ? ' (' + state.driveLastError + ')' : ''));
     statusEl.textContent = 'Envoi du justificatif…';
     return uploaderFactureDrive(file, file.name || 'justificatif.jpg', tx.type, tx.activite, tx.sousActivite, tx.date, tx.libelle, tx.numero);
